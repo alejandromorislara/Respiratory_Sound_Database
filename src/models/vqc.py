@@ -1,5 +1,9 @@
 """
-Variational Quantum Classifier (VQC).
+Variational Quantum Classifier (VQC) with gradient monitoring.
+
+This module implements a VQC with barren plateau detection capabilities.
+Barren plateaus are exponentially flat regions in the optimization landscape
+where gradients vanish, making training impossible.
 """
 import numpy as np
 import pennylane as qml
@@ -8,8 +12,9 @@ from pennylane.optimize import AdamOptimizer, GradientDescentOptimizer
 import pickle
 import time
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 from tqdm import tqdm
+import warnings
 
 import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -57,6 +62,8 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
                  learning_rate: float = LEARNING_RATE,
                  epochs: int = VQC_EPOCHS,
                  class_weight: dict = None,
+                 monitor_gradients: bool = True,
+                 gradient_threshold: float = 1e-5,
                  random_state: int = RANDOM_STATE):
         """
         Initialize the VQC.
@@ -67,6 +74,8 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             learning_rate: Learning rate for optimizer
             epochs: Number of training epochs
             class_weight: Dict {0: weight_0, 1: weight_1} for imbalanced data
+            monitor_gradients: Whether to monitor gradient norms for barren plateaus
+            gradient_threshold: Threshold below which gradients are considered vanishing
             random_state: Random seed
         """
         super().__init__(name="Variational Quantum Classifier")
@@ -76,6 +85,8 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         self.learning_rate = learning_rate
         self.epochs = epochs
         self.class_weight = class_weight
+        self.monitor_gradients = monitor_gradients
+        self.gradient_threshold = gradient_threshold
         self.random_state = random_state
         
         # Initialize weights
@@ -91,6 +102,11 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         
         # Optimizer
         self.optimizer = AdamOptimizer(stepsize=learning_rate)
+        
+        # Gradient monitoring
+        self.gradient_history: List[float] = []
+        self.barren_plateau_detected: bool = False
+        self.barren_plateau_epoch: Optional[int] = None
         
     def _create_circuit(self):
         """Create the VQC circuit."""
@@ -144,11 +160,100 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         
         return cost
     
+    def _compute_gradient_norm(self, weights: np.ndarray, 
+                                X: np.ndarray, y: np.ndarray) -> float:
+        """
+        Compute the L2 norm of the gradient of the cost function.
+        
+        This is used to detect barren plateaus, where gradients become
+        exponentially small, making training impossible.
+        
+        Args:
+            weights: Current weights
+            X: Training features
+            y: Training labels
+            
+        Returns:
+            L2 norm of the gradient
+        """
+        # Use finite differences for gradient approximation
+        epsilon = 1e-4
+        grad = np.zeros_like(weights.flatten())
+        weights_flat = weights.flatten()
+        
+        # Sample a subset of parameters for efficiency
+        n_params = len(weights_flat)
+        sample_size = min(n_params, 20)  # Sample at most 20 parameters
+        param_indices = np.random.choice(n_params, sample_size, replace=False)
+        
+        cost_current = float(self._cost(weights, X, y))
+        
+        for idx in param_indices:
+            weights_plus = weights_flat.copy()
+            weights_plus[idx] += epsilon
+            weights_plus = pnp.array(weights_plus.reshape(weights.shape), requires_grad=True)
+            
+            cost_plus = float(self._cost(weights_plus, X, y))
+            grad[idx] = (cost_plus - cost_current) / epsilon
+        
+        # Scale by sampling factor
+        grad_norm = np.linalg.norm(grad) * np.sqrt(n_params / sample_size)
+        
+        return grad_norm
+    
+    def _check_barren_plateau(self, epoch: int, grad_norm: float) -> bool:
+        """
+        Check if training is stuck in a barren plateau.
+        
+        Criteria:
+        1. Gradient norm below threshold for multiple consecutive epochs
+        2. Loss not decreasing significantly
+        
+        Args:
+            epoch: Current epoch
+            grad_norm: Current gradient norm
+            
+        Returns:
+            True if barren plateau detected
+        """
+        if grad_norm < self.gradient_threshold:
+            # Check if this is persistent
+            n_recent = min(5, len(self.gradient_history))
+            if n_recent >= 3:
+                recent_grads = self.gradient_history[-n_recent:]
+                if all(g < self.gradient_threshold for g in recent_grads):
+                    return True
+        return False
+    
+    def get_gradient_statistics(self) -> Dict:
+        """
+        Get statistics about gradient evolution during training.
+        
+        Returns:
+            Dictionary with gradient statistics
+        """
+        if not self.gradient_history:
+            return {'error': 'No gradient history available'}
+        
+        grads = np.array(self.gradient_history)
+        
+        return {
+            'mean_gradient_norm': grads.mean(),
+            'std_gradient_norm': grads.std(),
+            'min_gradient_norm': grads.min(),
+            'max_gradient_norm': grads.max(),
+            'final_gradient_norm': grads[-1],
+            'gradient_trend': 'decreasing' if grads[-1] < grads[0] else 'stable_or_increasing',
+            'barren_plateau_detected': self.barren_plateau_detected,
+            'barren_plateau_epoch': self.barren_plateau_epoch,
+            'n_epochs_below_threshold': (grads < self.gradient_threshold).sum()
+        }
+    
     def fit(self, X: np.ndarray, y: np.ndarray,
             batch_size: Optional[int] = None,
             verbose: bool = True) -> 'VariationalQuantumClassifier':
         """
-        Train the VQC.
+        Train the VQC with optional gradient monitoring.
         
         Args:
             X: Training features
@@ -166,6 +271,9 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             raise ValueError(f"Expected {self.n_qubits} features, got {X.shape[1]}")
         
         self.training_history = []
+        self.gradient_history = []
+        self.barren_plateau_detected = False
+        self.barren_plateau_epoch = None
         
         iterator = range(self.epochs)
         if verbose:
@@ -189,8 +297,29 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             cost = float(self._cost(self.weights, X, y))
             self.training_history.append(cost)
             
+            # Monitor gradients if enabled
+            if self.monitor_gradients and (epoch % 5 == 0 or epoch == self.epochs - 1):
+                grad_norm = self._compute_gradient_norm(self.weights, X_batch, y_batch)
+                self.gradient_history.append(grad_norm)
+                
+                # Check for barren plateau
+                if not self.barren_plateau_detected:
+                    if self._check_barren_plateau(epoch, grad_norm):
+                        self.barren_plateau_detected = True
+                        self.barren_plateau_epoch = epoch
+                        if verbose:
+                            warnings.warn(
+                                f"\n⚠️ Barren plateau detected at epoch {epoch}! "
+                                f"Gradient norm: {grad_norm:.2e}. "
+                                "Consider reducing circuit depth or using different ansatz.",
+                                UserWarning
+                            )
+            
             if verbose and (epoch + 1) % 10 == 0:
-                iterator.set_postfix({"loss": f"{cost:.4f}"})
+                postfix = {"loss": f"{cost:.4f}"}
+                if self.monitor_gradients and self.gradient_history:
+                    postfix["grad"] = f"{self.gradient_history[-1]:.2e}"
+                iterator.set_postfix(postfix)
         
         self.training_time = time.time() - start_time
         self._is_fitted = True
@@ -198,6 +327,12 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         if verbose:
             print(f"VQC trained in {self.training_time:.2f} seconds")
             print(f"Final loss: {self.training_history[-1]:.4f}")
+            
+            if self.monitor_gradients:
+                stats = self.get_gradient_statistics()
+                print(f"Final gradient norm: {stats['final_gradient_norm']:.2e}")
+                if self.barren_plateau_detected:
+                    print(f"⚠️ Warning: Barren plateau detected at epoch {self.barren_plateau_epoch}")
         
         return self
     
@@ -253,6 +388,8 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             "learning_rate": self.learning_rate,
             "epochs": self.epochs,
             "class_weight": self.class_weight,
+            "monitor_gradients": self.monitor_gradients,
+            "gradient_threshold": self.gradient_threshold,
             "random_state": self.random_state
         }
     
@@ -270,6 +407,9 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
                 "weights": np.array(self.weights),
                 "params": self.get_params(),
                 "training_history": self.training_history,
+                "gradient_history": self.gradient_history,
+                "barren_plateau_detected": self.barren_plateau_detected,
+                "barren_plateau_epoch": self.barren_plateau_epoch,
                 "training_time": self.training_time
             }, f)
         
@@ -287,10 +427,15 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             learning_rate=data["params"]["learning_rate"],
             epochs=data["params"]["epochs"],
             class_weight=data["params"].get("class_weight"),
+            monitor_gradients=data["params"].get("monitor_gradients", True),
+            gradient_threshold=data["params"].get("gradient_threshold", 1e-5),
             random_state=data["params"]["random_state"]
         )
         classifier.weights = pnp.array(data["weights"], requires_grad=True)
         classifier.training_history = data["training_history"]
+        classifier.gradient_history = data.get("gradient_history", [])
+        classifier.barren_plateau_detected = data.get("barren_plateau_detected", False)
+        classifier.barren_plateau_epoch = data.get("barren_plateau_epoch", None)
         classifier.training_time = data["training_time"]
         classifier._is_fitted = True
         

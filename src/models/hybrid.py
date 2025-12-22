@@ -1,5 +1,11 @@
 """
 Hybrid Quantum-Classical Neural Network Classifier.
+
+This module provides:
+1. HybridQuantumClassifier: Neural network with embedded quantum layer
+2. ClassicalControlClassifier: Ablation study control (pure classical)
+
+The ablation study compares both to isolate quantum contribution.
 """
 import numpy as np
 import torch
@@ -9,7 +15,7 @@ from torch.utils.data import DataLoader, TensorDataset
 import pennylane as qml
 import time
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 from tqdm import tqdm
 
 import sys
@@ -371,4 +377,323 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
     def count_parameters(self) -> int:
         """Count total trainable parameters."""
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
+
+class ClassicalControlClassifier:
+    """
+    Classical control network for ablation study.
+    
+    This network has an identical architecture to HybridQuantumClassifier
+    but replaces the quantum layer with a classical linear layer of 
+    comparable dimensionality.
+    
+    Purpose: Isolate the contribution of the quantum layer by comparing:
+    - Hybrid (with quantum): Classical → Quantum → Classical
+    - Control (pure classical): Classical → Linear → Classical
+    
+    If both achieve similar performance, the quantum layer is redundant.
+    If Hybrid significantly outperforms Control, quantum provides value.
+    """
+    
+    def __init__(self, input_dim: int = 52,
+                 n_hidden: int = N_QUBITS_HYBRID,
+                 learning_rate: float = LEARNING_RATE,
+                 epochs: int = HYBRID_EPOCHS,
+                 batch_size: int = BATCH_SIZE,
+                 pos_weight: float = None,
+                 random_state: int = RANDOM_STATE):
+        """
+        Initialize the classical control classifier.
+        
+        Args:
+            input_dim: Number of input features
+            n_hidden: Hidden dimension (matches n_qubits of hybrid)
+            learning_rate: Learning rate
+            epochs: Number of training epochs
+            batch_size: Batch size for training
+            pos_weight: Weight for positive class
+            random_state: Random seed
+        """
+        self.name = "Classical Control (Ablation)"
+        self.input_dim = input_dim
+        self.n_hidden = n_hidden
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.pos_weight = pos_weight
+        self.random_state = random_state
+        
+        # Set seeds
+        torch.manual_seed(random_state)
+        np.random.seed(random_state)
+        
+        # Device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Build model
+        self.model = self._build_model().to(self.device)
+        
+        # Loss function
+        if pos_weight is not None:
+            pw_tensor = torch.tensor([pos_weight], device=self.device)
+            self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw_tensor)
+        else:
+            self.criterion = nn.BCEWithLogitsLoss()
+        
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        
+        self.training_history: Dict = {"loss": [], "val_loss": []}
+        self.training_time: float = 0
+        self._is_fitted = False
+    
+    def _build_model(self) -> nn.Module:
+        """Build the classical control model."""
+        
+        class ClassicalControlNet(nn.Module):
+            """
+            Classical network matching hybrid architecture.
+            
+            Replaces quantum layer (n_qubits inputs → n_qubits outputs)
+            with a classical layer of same dimensionality.
+            """
+            
+            def __init__(self, input_dim, n_hidden):
+                super().__init__()
+                
+                # Classical preprocessing (same as hybrid)
+                self.classical_pre = nn.Sequential(
+                    nn.Linear(input_dim, 32),
+                    nn.ReLU(),
+                    nn.Dropout(0.2),
+                    nn.Linear(32, 16),
+                    nn.ReLU(),
+                    nn.Linear(16, n_hidden)
+                )
+                
+                # Classical replacement for quantum layer
+                # Uses same input/output dimensions as quantum layer
+                self.classical_core = nn.Sequential(
+                    nn.Linear(n_hidden, n_hidden * 2),
+                    nn.Tanh(),  # Mimic quantum output range [-1, 1]
+                    nn.Linear(n_hidden * 2, n_hidden)
+                )
+                
+                # Classical postprocessing (same as hybrid)
+                self.classical_post = nn.Sequential(
+                    nn.Linear(n_hidden, 8),
+                    nn.ReLU(),
+                    nn.Linear(8, 1)
+                )
+            
+            def forward(self, x):
+                x = self.classical_pre(x)
+                x = self.classical_core(x)
+                x = self.classical_post(x)
+                return x.squeeze(-1)
+        
+        return ClassicalControlNet(self.input_dim, self.n_hidden)
+    
+    def fit(self, X: np.ndarray, y: np.ndarray,
+            validation_data: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+            verbose: bool = True) -> 'ClassicalControlClassifier':
+        """Train the classical control classifier."""
+        start_time = time.time()
+        
+        # Convert to tensors
+        X_tensor = torch.FloatTensor(X).to(self.device)
+        y_tensor = torch.FloatTensor(y).to(self.device)
+        
+        # Create data loader
+        dataset = TensorDataset(X_tensor, y_tensor)
+        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        
+        self.training_history = {"loss": [], "val_loss": []}
+        
+        iterator = range(self.epochs)
+        if verbose:
+            iterator = tqdm(iterator, desc=f"Training Control ({self.device})")
+        
+        for epoch in iterator:
+            self.model.train()
+            epoch_loss = 0.0
+            
+            for batch_X, batch_y in dataloader:
+                self.optimizer.zero_grad()
+                outputs = self.model(batch_X)
+                loss = self.criterion(outputs, batch_y)
+                loss.backward()
+                self.optimizer.step()
+                epoch_loss += loss.item()
+            
+            epoch_loss /= len(dataloader)
+            self.training_history["loss"].append(epoch_loss)
+            
+            if validation_data is not None:
+                val_loss = self._compute_loss(*validation_data)
+                self.training_history["val_loss"].append(val_loss)
+            
+            if verbose and (epoch + 1) % 5 == 0:
+                msg = f"loss: {epoch_loss:.4f}"
+                if validation_data is not None:
+                    msg += f", val_loss: {self.training_history['val_loss'][-1]:.4f}"
+                iterator.set_postfix_str(msg)
+        
+        self.training_time = time.time() - start_time
+        self._is_fitted = True
+        
+        if verbose:
+            print(f"Classical control trained in {self.training_time:.2f} seconds")
+            print(f"Final loss: {self.training_history['loss'][-1]:.4f}")
+        
+        return self
+    
+    def _compute_loss(self, X: np.ndarray, y: np.ndarray) -> float:
+        """Compute loss on a dataset."""
+        self.model.eval()
+        with torch.no_grad():
+            X_tensor = torch.FloatTensor(X).to(self.device)
+            y_tensor = torch.FloatTensor(y).to(self.device)
+            outputs = self.model(X_tensor)
+            loss = self.criterion(outputs, y_tensor)
+        return float(loss)
+    
+    def predict(self, X: np.ndarray, threshold: float = 0.5) -> np.ndarray:
+        """Predict class labels."""
+        if not self._is_fitted:
+            raise ValueError("Model must be fitted before prediction")
+        proba = self.predict_proba(X)
+        return (proba[:, 1] > threshold).astype(int)
+    
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Predict class probabilities."""
+        if not self._is_fitted:
+            raise ValueError("Model must be fitted before prediction")
+        
+        self.model.eval()
+        with torch.no_grad():
+            X_tensor = torch.FloatTensor(X).to(self.device)
+            logits = self.model(X_tensor)
+            prob_class_1 = torch.sigmoid(logits).cpu().numpy()
+        
+        prob_class_0 = 1 - prob_class_1
+        return np.column_stack([prob_class_0, prob_class_1])
+    
+    def get_params(self) -> dict:
+        """Get model parameters."""
+        return {
+            "name": self.name,
+            "input_dim": self.input_dim,
+            "n_hidden": self.n_hidden,
+            "learning_rate": self.learning_rate,
+            "epochs": self.epochs,
+            "batch_size": self.batch_size,
+            "pos_weight": self.pos_weight,
+            "random_state": self.random_state
+        }
+    
+    def count_parameters(self) -> int:
+        """Count total trainable parameters."""
+        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
+
+def run_ablation_study(X_train: np.ndarray, y_train: np.ndarray,
+                       X_test: np.ndarray, y_test: np.ndarray,
+                       input_dim: int = 8,
+                       n_qubits: int = N_QUBITS_HYBRID,
+                       verbose: bool = True) -> Dict:
+    """
+    Run ablation study comparing hybrid quantum vs classical control.
+    
+    Args:
+        X_train, y_train: Training data
+        X_test, y_test: Test data
+        input_dim: Input dimension
+        n_qubits: Number of qubits/hidden units
+        verbose: Whether to print progress
+        
+    Returns:
+        Dictionary with comparison results
+    """
+    from sklearn.metrics import balanced_accuracy_score, f1_score
+    
+    results = {}
+    
+    # Train hybrid model
+    if verbose:
+        print("\n" + "="*60)
+        print("ABLATION STUDY: Quantum vs Classical")
+        print("="*60)
+        print("\n1. Training Hybrid Quantum-Classical Model...")
+    
+    hybrid = HybridQuantumClassifier(
+        input_dim=input_dim,
+        n_qubits=n_qubits,
+        epochs=30,
+        random_state=42
+    )
+    hybrid.fit(X_train, y_train, verbose=verbose)
+    y_pred_hybrid = hybrid.predict(X_test)
+    
+    results['hybrid'] = {
+        'balanced_accuracy': balanced_accuracy_score(y_test, y_pred_hybrid),
+        'f1_score': f1_score(y_test, y_pred_hybrid, average='macro'),
+        'training_time': hybrid.training_time,
+        'n_parameters': hybrid.count_parameters()
+    }
+    
+    # Train classical control
+    if verbose:
+        print("\n2. Training Classical Control Model...")
+    
+    control = ClassicalControlClassifier(
+        input_dim=input_dim,
+        n_hidden=n_qubits,
+        epochs=30,
+        random_state=42
+    )
+    control.fit(X_train, y_train, verbose=verbose)
+    y_pred_control = control.predict(X_test)
+    
+    results['control'] = {
+        'balanced_accuracy': balanced_accuracy_score(y_test, y_pred_control),
+        'f1_score': f1_score(y_test, y_pred_control, average='macro'),
+        'training_time': control.training_time,
+        'n_parameters': control.count_parameters()
+    }
+    
+    # Comparison
+    ba_diff = results['hybrid']['balanced_accuracy'] - results['control']['balanced_accuracy']
+    f1_diff = results['hybrid']['f1_score'] - results['control']['f1_score']
+    
+    results['comparison'] = {
+        'ba_difference': ba_diff,
+        'f1_difference': f1_diff,
+        'quantum_adds_value': ba_diff > 0.02,  # >2% improvement threshold
+        'speedup_factor': results['control']['training_time'] / results['hybrid']['training_time']
+    }
+    
+    if verbose:
+        print("\n" + "="*60)
+        print("ABLATION STUDY RESULTS")
+        print("="*60)
+        print(f"\nHybrid (Quantum):")
+        print(f"  Balanced Accuracy: {results['hybrid']['balanced_accuracy']:.4f}")
+        print(f"  F1 Score: {results['hybrid']['f1_score']:.4f}")
+        print(f"  Training Time: {results['hybrid']['training_time']:.2f}s")
+        print(f"  Parameters: {results['hybrid']['n_parameters']}")
+        
+        print(f"\nClassical Control:")
+        print(f"  Balanced Accuracy: {results['control']['balanced_accuracy']:.4f}")
+        print(f"  F1 Score: {results['control']['f1_score']:.4f}")
+        print(f"  Training Time: {results['control']['training_time']:.2f}s")
+        print(f"  Parameters: {results['control']['n_parameters']}")
+        
+        print(f"\nConclusion:")
+        if results['comparison']['quantum_adds_value']:
+            print(f"  ✅ Quantum layer provides {ba_diff*100:.1f}% improvement")
+        else:
+            print(f"  ⚠️ Quantum layer does not significantly outperform classical")
+        print("="*60)
+    
+    return results
 
