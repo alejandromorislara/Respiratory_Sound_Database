@@ -40,6 +40,7 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
                  learning_rate: float = LEARNING_RATE,
                  epochs: int = HYBRID_EPOCHS,
                  batch_size: int = BATCH_SIZE,
+                 pos_weight: float = None,
                  random_state: int = RANDOM_STATE):
         """
         Initialize the hybrid classifier.
@@ -51,6 +52,7 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
             learning_rate: Learning rate
             epochs: Number of training epochs
             batch_size: Batch size for training
+            pos_weight: Weight for positive class (for imbalanced data: n_neg/n_pos)
             random_state: Random seed
         """
         super().__init__(name="Hybrid Quantum Classifier")
@@ -61,6 +63,7 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
         self.learning_rate = learning_rate
         self.epochs = epochs
         self.batch_size = batch_size
+        self.pos_weight = pos_weight
         self.random_state = random_state
         
         # Set seeds
@@ -78,11 +81,16 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
         self.dev = self._get_optimal_quantum_device(n_qubits)
         print(f"⚛️ Quantum device: {self.dev}")
         
-        # Initialize the model and move to GPU
+        # Initialize the model and move to GPU (no sigmoid at output)
         self.model = self._build_model().to(self.device)
         
-        # Loss and optimizer
-        self.criterion = nn.BCELoss()
+        # Loss with pos_weight for imbalanced data (BCEWithLogitsLoss is numerically stable)
+        if pos_weight is not None:
+            pw_tensor = torch.tensor([pos_weight], device=self.device)
+            self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw_tensor)
+        else:
+            self.criterion = nn.BCEWithLogitsLoss()
+        
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
     
     @staticmethod
@@ -149,7 +157,7 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
                 return torch.stack(outputs)
         
         class HybridNet(nn.Module):
-            """Complete hybrid network."""
+            """Complete hybrid network. Output is raw logits (no sigmoid)."""
             
             def __init__(self, input_dim, n_qubits, n_layers):
                 super().__init__()
@@ -167,12 +175,11 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
                 # Quantum layer
                 self.quantum = QuantumLayer(n_qubits, n_layers)
                 
-                # Classical postprocessing
+                # Classical postprocessing (no sigmoid - use BCEWithLogitsLoss)
                 self.classical_post = nn.Sequential(
                     nn.Linear(n_qubits, 8),
                     nn.ReLU(),
-                    nn.Linear(8, 1),
-                    nn.Sigmoid()
+                    nn.Linear(8, 1)
                 )
             
             def forward(self, x):
@@ -264,12 +271,13 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
             loss = self.criterion(outputs, y_tensor)
         return float(loss)
     
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: np.ndarray, threshold: float = 0.5) -> np.ndarray:
         """
         Predict class labels.
         
         Args:
             X: Features to predict
+            threshold: Decision threshold (default 0.5)
             
         Returns:
             Predicted labels
@@ -278,7 +286,7 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
             raise ValueError("Model must be fitted before prediction")
         
         proba = self.predict_proba(X)
-        return (proba[:, 1] > 0.5).astype(int)
+        return (proba[:, 1] > threshold).astype(int)
     
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """
@@ -296,7 +304,9 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
         self.model.eval()
         with torch.no_grad():
             X_tensor = torch.FloatTensor(X).to(self.device)
-            prob_class_1 = self.model(X_tensor).cpu().numpy()
+            logits = self.model(X_tensor)
+            # Apply sigmoid to convert logits to probabilities
+            prob_class_1 = torch.sigmoid(logits).cpu().numpy()
         
         prob_class_0 = 1 - prob_class_1
         return np.column_stack([prob_class_0, prob_class_1])
@@ -311,6 +321,7 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
             "learning_rate": self.learning_rate,
             "epochs": self.epochs,
             "batch_size": self.batch_size,
+            "pos_weight": self.pos_weight,
             "random_state": self.random_state
         }
     
@@ -345,6 +356,7 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
             learning_rate=checkpoint["params"]["learning_rate"],
             epochs=checkpoint["params"]["epochs"],
             batch_size=checkpoint["params"]["batch_size"],
+            pos_weight=checkpoint["params"].get("pos_weight"),
             random_state=checkpoint["params"]["random_state"]
         )
         

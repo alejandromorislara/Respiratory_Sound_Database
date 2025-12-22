@@ -56,6 +56,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
                  n_layers: int = N_LAYERS_VQC,
                  learning_rate: float = LEARNING_RATE,
                  epochs: int = VQC_EPOCHS,
+                 class_weight: dict = None,
                  random_state: int = RANDOM_STATE):
         """
         Initialize the VQC.
@@ -65,6 +66,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             n_layers: Number of variational layers
             learning_rate: Learning rate for optimizer
             epochs: Number of training epochs
+            class_weight: Dict {0: weight_0, 1: weight_1} for imbalanced data
             random_state: Random seed
         """
         super().__init__(name="Variational Quantum Classifier")
@@ -73,6 +75,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         self.n_layers = n_layers
         self.learning_rate = learning_rate
         self.epochs = epochs
+        self.class_weight = class_weight
         self.random_state = random_state
         
         # Initialize weights
@@ -114,7 +117,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
     
     def _cost(self, weights: np.ndarray, X: np.ndarray, y: np.ndarray) -> float:
         """
-        Compute the cost function (mean squared error).
+        Compute the cost function (weighted mean squared error).
         
         Args:
             weights: Current weights
@@ -130,8 +133,14 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         # Map labels from {0, 1} to {-1, 1}
         y_mapped = 2 * y - 1
         
-        # Mean squared error
-        cost = pnp.mean((predictions - y_mapped) ** 2)
+        # Compute sample weights if class_weight is provided
+        if self.class_weight is not None:
+            sample_weights = pnp.array([self.class_weight.get(int(yi), 1.0) for yi in y])
+            # Weighted mean squared error
+            cost = pnp.sum(sample_weights * (predictions - y_mapped) ** 2) / pnp.sum(sample_weights)
+        else:
+            # Standard mean squared error
+            cost = pnp.mean((predictions - y_mapped) ** 2)
         
         return cost
     
@@ -243,6 +252,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             "n_layers": self.n_layers,
             "learning_rate": self.learning_rate,
             "epochs": self.epochs,
+            "class_weight": self.class_weight,
             "random_state": self.random_state
         }
     
@@ -276,6 +286,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             n_layers=data["params"]["n_layers"],
             learning_rate=data["params"]["learning_rate"],
             epochs=data["params"]["epochs"],
+            class_weight=data["params"].get("class_weight"),
             random_state=data["params"]["random_state"]
         )
         classifier.weights = pnp.array(data["weights"], requires_grad=True)

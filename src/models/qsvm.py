@@ -51,6 +51,7 @@ class QuantumKernelSVM(BaseQuantumClassifier):
     def __init__(self, n_qubits: int = N_QUBITS,
                  feature_map: str = "custom",
                  C: float = 1.0,
+                 class_weight=None,
                  random_state: int = RANDOM_STATE):
         """
         Initialize the QSVM.
@@ -59,6 +60,7 @@ class QuantumKernelSVM(BaseQuantumClassifier):
             n_qubits: Number of qubits (must equal feature dimension)
             feature_map: Type of feature map ("angle", "custom", "zz")
             C: SVM regularization parameter
+            class_weight: Class weights - 'balanced' or dict {class: weight}
             random_state: Random seed
         """
         super().__init__(name="Quantum SVM")
@@ -66,6 +68,7 @@ class QuantumKernelSVM(BaseQuantumClassifier):
         self.n_qubits = n_qubits
         self.feature_map = feature_map
         self.C = C
+        self.class_weight = class_weight
         self.random_state = random_state
         
         # Create quantum device and kernel
@@ -73,10 +76,11 @@ class QuantumKernelSVM(BaseQuantumClassifier):
         print(f"QSVM using device: {self.dev}")
         self._create_kernel()
         
-        # SVM with precomputed kernel
+        # SVM with precomputed kernel (supports class_weight for imbalanced data)
         self.svm = SVC(
             kernel="precomputed",
             C=C,
+            class_weight=class_weight,
             random_state=random_state,
             probability=True
         )
@@ -257,6 +261,7 @@ class QuantumKernelSVM(BaseQuantumClassifier):
             "n_qubits": self.n_qubits,
             "feature_map": self.feature_map,
             "C": self.C,
+            "class_weight": self.class_weight,
             "random_state": self.random_state
         }
     
@@ -286,6 +291,7 @@ class QuantumKernelSVM(BaseQuantumClassifier):
             n_qubits=data["params"]["n_qubits"],
             feature_map=data["params"]["feature_map"],
             C=data["params"]["C"],
+            class_weight=data["params"].get("class_weight"),
             random_state=data["params"]["random_state"]
         )
         classifier.svm = data["svm"]
