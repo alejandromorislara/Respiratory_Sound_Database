@@ -1,59 +1,22 @@
 # =============================================================================
-# Quantum Respiratory Classification - Requirements
+# Requirements
 # Recommended: Python 3.10+
 # =============================================================================
-
-# Core
-numpy>=1.23.0,<2.0.0
-pandas>=1.5.0
-scipy>=1.10.0
-
-# Audio processing
-librosa>=0.10.0
-soundfile>=0.12.0
-
-# Machine Learning
-scikit-learn>=1.2.0
-
-# =============================================================================
-# Quantum Computing - PennyLane (stable version with good CUDA support)
-# =============================================================================
-pennylane==0.35.1
-
-# =============================================================================
-# Deep Learning - PyTorch with CUDA support
-# For CUDA support, install PyTorch separately:
-#   pip install torch --index-url https://download.pytorch.org/whl/cu118
-#   or for CUDA 12.1:
-#   pip install torch --index-url https://download.pytorch.org/whl/cu121
-# =============================================================================
-torch>=2.0.0
-
-# PennyLane Lightning (CPU acceleration)
-pennylane-lightning>=0.35.0
-
-# =============================================================================
-# GPU Acceleration for Quantum Simulation (optional but recommended)
-# Requires CUDA toolkit installed
-# =============================================================================
-# pennylane-lightning-gpu>=0.35.0  # Uncomment if you have NVIDIA GPU + CUDA
-
-# =============================================================================
-# Visualization
-# =============================================================================
-matplotlib>=3.7.0
-seaborn>=0.12.0
-
-# Jupyter
-jupyter>=1.0.0
-ipywidgets>=8.0.0
-
-# Progress bar
-tqdm>=4.65.0
-
-# =============================================================================
-# Optional: For running on real quantum hardware
-# =============================================================================
-# pennylane-qiskit>=0.35.0  # IBM Quantum
-# amazon-braket-pennylane-plugin  # AWS Braket
+numpy
+pandas
+scipy
+librosa
+soundfile
+scikit-learn
+imbalanced-learn 
+pennylane
+torch
+pennylane-lightning
+matplotlib
+seaborn
+jupyter
+ipywidgets
+tqdm
+# pennylane-qiskit
+# amazon-braket-pennylane-plugin  
 

@@ -1,9 +1,10 @@
 """
-Variational Quantum Classifier (VQC) with gradient monitoring.
+Quantum Neural Network (QNN) with gradient monitoring.
 
-This module implements a VQC with barren plateau detection capabilities.
-Barren plateaus are exponentially flat regions in the optimization landscape
-where gradients vanish, making training impossible.
+This module implements a QNN following the style of PL11 notebook,
+with barren plateau detection capabilities. Barren plateaus are 
+exponentially flat regions in the optimization landscape where 
+gradients vanish, making training impossible.
 """
 import numpy as np
 import pennylane as qml
@@ -19,26 +20,26 @@ import warnings
 import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from config.settings import N_QUBITS, N_LAYERS_VQC, LEARNING_RATE, VQC_EPOCHS, RANDOM_STATE
+from config.settings import N_QUBITS, N_LAYERS_QNN, LEARNING_RATE, QNN_EPOCHS, RANDOM_STATE
 from .base import BaseQuantumClassifier
+from ..circuits import angle_embedding, strongly_entangling_layers, hermitian_projector
 
 
-class VariationalQuantumClassifier(BaseQuantumClassifier):
+class QuantumNeuralNetwork(BaseQuantumClassifier):
     """
-    Variational Quantum Classifier.
+    Quantum Neural Network (QNN).
 
     Uses parameterized quantum circuits for classification.
     Architecture:
     1. Angle Embedding for data encoding
     2. Strongly Entangling Layers (trainable)
-    3. Pauli-Z measurement on first qubit
+    3. Hermitian measurement projecting to |0> state on first qubit
     """
 
     @staticmethod
     def _get_optimal_device(n_qubits: int):
         """Get the best available quantum device (GPU if possible)."""
         try:
-            # Try Lightning GPU first
             dev = qml.device("lightning.gpu", wires=n_qubits)
             print(f"Using Lightning GPU device")
             return dev
@@ -46,21 +47,19 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             print(f"Lightning GPU not available: {e}")
 
         try:
-            # Try Lightning CPU
             dev = qml.device("lightning.qubit", wires=n_qubits)
             print(f"Using Lightning CPU device")
             return dev
         except Exception as e:
             print(f"Lightning CPU not available: {e}")
 
-        # Fallback to default qubit
         print(f"Using default.qubit device (classical simulation)")
         return qml.device("default.qubit", wires=n_qubits)
 
     def __init__(self, n_qubits: int = N_QUBITS,
-                 n_layers: int = N_LAYERS_VQC,
+                 n_layers: int = N_LAYERS_QNN,
                  learning_rate: float = LEARNING_RATE,
-                 epochs: int = VQC_EPOCHS,
+                 epochs: int = QNN_EPOCHS,
                  class_weight: dict = None,
                  monitor_gradients: bool = True,
                  gradient_threshold: float = 1e-5,
@@ -68,7 +67,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
                  validation_split: float = 0.0,
                  random_state: int = RANDOM_STATE):
         """
-        Initialize the VQC.
+        Initialize the QNN.
         
         Args:
             n_qubits: Number of qubits
@@ -82,7 +81,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             validation_split: Fraction of training data to use for validation (0.0 = disabled)
             random_state: Random seed
         """
-        super().__init__(name="Variational Quantum Classifier")
+        super().__init__(name="Quantum Neural Network")
         
         self.n_qubits = n_qubits
         self.n_layers = n_layers
@@ -103,7 +102,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         
         # Create quantum circuit
         self.dev = self._get_optimal_device(n_qubits)
-        print(f"VQC using device: {self.dev}")
+        print(f"QNN using device: {self.dev}")
         self._create_circuit()
         
         # Optimizer
@@ -121,17 +120,18 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         self.validation_history: List[float] = []
         
     def _create_circuit(self):
-        """Create the VQC circuit."""
+        """Create the QNN circuit using circuits module."""
+        n_qubits = self.n_qubits
+        
         @qml.qnode(self.dev, interface="autograd")
         def circuit(weights, x):
-            # Data encoding
-            qml.AngleEmbedding(x, wires=range(self.n_qubits))
+            # Data encoding using circuits module
+            angle_embedding(x, wires=range(n_qubits))
             
-            # Variational layers
-            qml.StronglyEntanglingLayers(weights, wires=range(self.n_qubits))
+            # Variational layers using circuits module
+            strongly_entangling_layers(weights, wires=range(n_qubits))
             
-            # Measurement
-            return qml.expval(qml.PauliZ(0))
+            return qml.expval(hermitian_projector(wire=0))
         
         self._circuit = circuit
     
@@ -145,7 +145,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
     
     def _cost(self, weights: np.ndarray, X: np.ndarray, y: np.ndarray) -> float:
         """
-        Compute the cost function (weighted mean squared error).
+        Compute the cost function using weighted MSE.
         
         Args:
             weights: Current weights
@@ -155,20 +155,13 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         Returns:
             Cost value
         """
-        # Get predictions (in range [-1, 1])
         predictions = pnp.array([self._circuit(weights, x) for x in X])
         
-        # Map labels from {0, 1} to {-1, 1}
-        y_mapped = 2 * y - 1
-        
-        # Compute sample weights if class_weight is provided
         if self.class_weight is not None:
             sample_weights = pnp.array([self.class_weight.get(int(yi), 1.0) for yi in y])
-            # Weighted mean squared error
-            cost = pnp.sum(sample_weights * (predictions - y_mapped) ** 2) / pnp.sum(sample_weights)
+            cost = pnp.sum(sample_weights * (predictions - y) ** 2) / pnp.sum(sample_weights)
         else:
-            # Standard mean squared error
-            cost = pnp.mean((predictions - y_mapped) ** 2)
+            cost = pnp.mean((predictions - y) ** 2)
         
         return cost
     
@@ -188,14 +181,12 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         Returns:
             L2 norm of the gradient
         """
-        # Use finite differences for gradient approximation
         epsilon = 1e-4
         grad = np.zeros_like(weights.flatten())
         weights_flat = weights.flatten()
         
-        # Sample a subset of parameters for efficiency
         n_params = len(weights_flat)
-        sample_size = min(n_params, 20)  # Sample at most 20 parameters
+        sample_size = min(n_params, 20)
         param_indices = np.random.choice(n_params, sample_size, replace=False)
         
         cost_current = float(self._cost(weights, X, y))
@@ -208,7 +199,6 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             cost_plus = float(self._cost(weights_plus, X, y))
             grad[idx] = (cost_plus - cost_current) / epsilon
         
-        # Scale by sampling factor
         grad_norm = np.linalg.norm(grad) * np.sqrt(n_params / sample_size)
         
         return grad_norm
@@ -229,7 +219,6 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
             True if barren plateau detected
         """
         if grad_norm < self.gradient_threshold:
-            # Check if this is persistent
             n_recent = min(5, len(self.gradient_history))
             if n_recent >= 3:
                 recent_grads = self.gradient_history[-n_recent:]
@@ -263,9 +252,9 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
     
     def fit(self, X: np.ndarray, y: np.ndarray,
             batch_size: Optional[int] = None,
-            verbose: bool = True) -> 'VariationalQuantumClassifier':
+            verbose: bool = True) -> 'QuantumNeuralNetwork':
         """
-        Train the VQC with optional gradient monitoring and early stopping.
+        Train the QNN with optional gradient monitoring and early stopping.
         
         Args:
             X: Training features
@@ -278,7 +267,6 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         """
         start_time = time.time()
         
-        # Check dimensions
         if X.shape[1] != self.n_qubits:
             raise ValueError(f"Expected {self.n_qubits} features, got {X.shape[1]}")
         
@@ -311,11 +299,10 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         
         iterator = range(self.epochs)
         if verbose:
-            iterator = tqdm(iterator, desc="Training VQC")
+            iterator = tqdm(iterator, desc="Training QNN")
         
         for epoch in iterator:
             if batch_size is not None and batch_size < len(X_train):
-                # Mini-batch training
                 indices = np.random.choice(len(X_train), batch_size, replace=False)
                 X_batch, y_batch = X_train[indices], y_train[indices]
             else:
@@ -358,7 +345,6 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
                 grad_norm = self._compute_gradient_norm(self.weights, X_batch, y_batch)
                 self.gradient_history.append(grad_norm)
                 
-                # Check for barren plateau
                 if not self.barren_plateau_detected:
                     if self._check_barren_plateau(epoch, grad_norm):
                         self.barren_plateau_detected = True
@@ -389,7 +375,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         self._is_fitted = True
         
         if verbose:
-            print(f"VQC trained in {self.training_time:.2f} seconds")
+            print(f"QNN trained in {self.training_time:.2f} seconds")
             print(f"Final training loss: {self.training_history[-1]:.4f}")
             if self.validation_history:
                 print(f"Best validation loss: {self.best_val_loss:.4f}")
@@ -415,11 +401,8 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         if not self._is_fitted:
             raise ValueError("Model must be fitted before prediction")
         
-        # Get raw predictions
         raw_predictions = self._predictions_batch(X)
-        
-        # Convert from [-1, 1] to {0, 1}
-        predictions = (raw_predictions > 0).astype(int)
+        predictions = (raw_predictions > 0.5).astype(int)
         
         return predictions
     
@@ -436,11 +419,9 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         if not self._is_fitted:
             raise ValueError("Model must be fitted before prediction")
         
-        # Get raw predictions in [-1, 1]
         raw_predictions = self._predictions_batch(X)
         
-        # Convert to probabilities [0, 1]
-        prob_class_1 = (raw_predictions + 1) / 2
+        prob_class_1 = raw_predictions
         prob_class_0 = 1 - prob_class_1
         
         return np.column_stack([prob_class_0, prob_class_1])
@@ -491,7 +472,7 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         print(f"Model saved to {path}")
     
     @classmethod
-    def load(cls, path: Path) -> 'VariationalQuantumClassifier':
+    def load(cls, path: Path) -> 'QuantumNeuralNetwork':
         """Load model from disk."""
         with open(path, "rb") as f:
             data = pickle.load(f)
@@ -533,4 +514,3 @@ class VariationalQuantumClassifier(BaseQuantumClassifier):
         x = np.zeros(self.n_qubits)
         specs = qml.specs(self._circuit)(self.weights, x)
         return specs
-

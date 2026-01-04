@@ -25,7 +25,7 @@ TEST_FILE = SPLITS_DIR / "test.csv"
 # Model paths
 MODELS_DIR = PROJECT_ROOT / "models"
 QSVM_MODEL_FILE = MODELS_DIR / "qsvm_model.pkl"
-VQC_MODEL_FILE = MODELS_DIR / "vqc_model.pkl"
+QNN_MODEL_FILE = MODELS_DIR / "qnn_model.pkl"
 HYBRID_MODEL_FILE = MODELS_DIR / "hybrid_model.pt"
 
 # Results paths

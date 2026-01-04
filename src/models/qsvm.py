@@ -15,6 +15,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from config.settings import N_QUBITS, RANDOM_STATE
 from .base import BaseQuantumClassifier
+from ..circuits import create_kernel_circuit, compute_kernel_value
 
 
 class QuantumKernelSVM(BaseQuantumClassifier):
@@ -29,7 +30,6 @@ class QuantumKernelSVM(BaseQuantumClassifier):
     def _get_optimal_device(n_qubits: int):
         """Get the best available quantum device (GPU if possible)."""
         try:
-            # Try Lightning GPU first
             dev = qml.device("lightning.gpu", wires=n_qubits)
             print(f"Using Lightning GPU device")
             return dev
@@ -37,19 +37,17 @@ class QuantumKernelSVM(BaseQuantumClassifier):
             print(f"Lightning GPU not available: {e}")
 
         try:
-            # Try Lightning CPU
             dev = qml.device("lightning.qubit", wires=n_qubits)
             print(f"Using Lightning CPU device")
             return dev
         except Exception as e:
             print(f"Lightning CPU not available: {e}")
 
-        # Fallback to default qubit
         print(f"Using default.qubit device (classical simulation)")
         return qml.device("default.qubit", wires=n_qubits)
 
     def __init__(self, n_qubits: int = N_QUBITS,
-                 feature_map: str = "custom",
+                 feature_map: str = "angle",
                  C: float = 1.0,
                  class_weight=None,
                  random_state: int = RANDOM_STATE):
@@ -59,6 +57,9 @@ class QuantumKernelSVM(BaseQuantumClassifier):
         Args:
             n_qubits: Number of qubits (must equal feature dimension)
             feature_map: Type of feature map ("angle", "custom", "zz")
+                        - "angle": Uses AngleEmbedding 
+                        - "custom": H-RZ-CNOT-RY pattern
+                        - "zz": ZZ feature map with entanglement
             C: SVM regularization parameter
             class_weight: Class weights - 'balanced' or dict {class: weight}
             random_state: Random seed
@@ -71,77 +72,56 @@ class QuantumKernelSVM(BaseQuantumClassifier):
         self.class_weight = class_weight
         self.random_state = random_state
         
-        # Create quantum device and kernel
+        # Create quantum device
         self.dev = self._get_optimal_device(n_qubits)
         print(f"QSVM using device: {self.dev}")
-        self._create_kernel()
-        
-        # SVM with precomputed kernel (supports class_weight for imbalanced data)
-        self.svm = SVC(
-            kernel="precomputed",
-            C=C,
-            class_weight=class_weight,
-            random_state=random_state,
-            probability=True
+
+        # Create kernel circuit using circuits module
+        self._kernel_circuit = create_kernel_circuit(
+            self.dev, 
+            n_qubits=self.n_qubits, 
+            feature_map=self.feature_map
         )
         
+        # Store training data for kernel computation during prediction
         self.X_train = None
-        self.K_train = None
-        
-    def _create_kernel(self):
-        """Create the quantum kernel circuit."""
-        wires = list(range(self.n_qubits))
-        
-        def feature_map_circuit(x):
-            """Apply the feature map."""
-            if self.feature_map == "angle":
-                qml.AngleEmbedding(x, wires=wires)
-            elif self.feature_map == "custom":
-                for i in range(self.n_qubits):
-                    qml.Hadamard(wires=i)
-                    qml.RZ(x[i], wires=i)
-                for i in range(self.n_qubits - 1):
-                    qml.CNOT(wires=[i, i + 1])
-                for i in range(self.n_qubits):
-                    qml.RY(x[i], wires=i)
-            elif self.feature_map == "zz":
-                for i in range(self.n_qubits):
-                    qml.Hadamard(wires=i)
-                    qml.RZ(2 * x[i], wires=i)
-                for i in range(self.n_qubits - 1):
-                    qml.CNOT(wires=[i, i + 1])
-                    qml.RZ(2 * x[i] * x[i + 1], wires=i + 1)
-                    qml.CNOT(wires=[i, i + 1])
-        
-        @qml.qnode(self.dev)
-        def kernel_circuit(x1, x2):
-            feature_map_circuit(x1)
-            qml.adjoint(feature_map_circuit)(x2)
-            return qml.probs(wires=wires)
-        
-        self._kernel_circuit = kernel_circuit
+        self.svm = None
     
     def quantum_kernel(self, x1: np.ndarray, x2: np.ndarray) -> float:
         """
         Compute quantum kernel between two data points.
         
-        K(x1, x2) = |<φ(x1)|φ(x2)>|^2
+        K(x1, x2) = |<φ(x1)|φ(x2)>|^2 = probability of |00...0⟩
+        
+        kernel(a, b)[0]
         
         Args:
             x1: First data point
             x2: Second data point
             
         Returns:
-            Kernel value
+            Kernel value (float)
         """
-        probs = self._kernel_circuit(x1, x2)
-        return float(probs[0])  # Probability of |00...0⟩
+        return compute_kernel_value(self._kernel_circuit, x1, x2)
+    
+    def kernel_matrix(self, A: np.ndarray, B: np.ndarray) -> np.ndarray:
+        """
+        Compute kernel matrix between two sets of data points.
+        
+        Args:
+            A: First set of data points (n_a, n_features)
+            B: Second set of data points (n_b, n_features)
+            
+        Returns:
+            Kernel matrix (n_a, n_b)
+        """
+        return np.array([[self.quantum_kernel(a, b) for b in B] for a in A])
     
     def _compute_kernel_matrix(self, X1: np.ndarray, X2: np.ndarray,
                                symmetric: bool = False,
                                show_progress: bool = True) -> np.ndarray:
         """
-        Compute kernel matrix between two sets of data points.
+        Compute kernel matrix with optional progress bar and symmetry optimization.
         
         Args:
             X1: First set of data points
@@ -156,7 +136,6 @@ class QuantumKernelSVM(BaseQuantumClassifier):
         K = np.zeros((n1, n2))
         
         if symmetric:
-            # Only compute upper triangle
             pairs = [(i, j) for i in range(n1) for j in range(i, n2)]
             desc = "Computing kernel (symmetric)"
         else:
@@ -177,82 +156,77 @@ class QuantumKernelSVM(BaseQuantumClassifier):
             show_progress: bool = True) -> 'QuantumKernelSVM':
         """
         Train the QSVM.
-        
+
         Args:
             X: Training features (n_samples, n_features)
             y: Training labels
             show_progress: Whether to show progress bar
-            
+
         Returns:
             Self
         """
         start_time = time.time()
-        
-        # Check dimensions
+
         if X.shape[1] != self.n_qubits:
             raise ValueError(f"Expected {self.n_qubits} features, got {X.shape[1]}")
-        
+
         self.X_train = X.copy()
-        
-        # Compute training kernel matrix
-        print(f"Computing quantum kernel matrix ({len(X)}x{len(X)})...")
-        self.K_train = self._compute_kernel_matrix(X, X, symmetric=True, 
-                                                    show_progress=show_progress)
-        
-        # Train SVM with precomputed kernel
-        self.svm.fit(self.K_train, y)
-        
+
+        print(f"Training QSVM with {len(y)} samples")
+        self.svm = SVC(
+            kernel=self.kernel_matrix,  
+            C=self.C,
+            class_weight=self.class_weight,
+            random_state=self.random_state,
+            probability=True
+        )
+
+        self.svm.fit(X, y)
+
         self.training_time = time.time() - start_time
         self._is_fitted = True
-        
+
         print(f"QSVM trained in {self.training_time:.2f} seconds")
-        
+
         return self
     
     def predict(self, X: np.ndarray, show_progress: bool = True) -> np.ndarray:
         """
         Predict class labels.
-        
+
         Args:
             X: Features to predict
-            show_progress: Whether to show progress bar
-            
+            show_progress: Whether to show progress bar (ignored - scikit-learn handles kernels)
+
         Returns:
             Predicted labels
         """
         if not self._is_fitted:
             raise ValueError("Model must be fitted before prediction")
-        
-        # Compute kernel between test and training points
-        K_test = self._compute_kernel_matrix(X, self.X_train, symmetric=False,
-                                              show_progress=show_progress)
-        
-        return self.svm.predict(K_test)
+
+        return self.svm.predict(X)
     
     def predict_proba(self, X: np.ndarray, show_progress: bool = True) -> np.ndarray:
         """
         Predict class probabilities.
-        
+
         Args:
             X: Features to predict
-            show_progress: Whether to show progress bar
-            
+            show_progress: Whether to show progress bar (ignored - scikit-learn handles kernels)
+
         Returns:
             Predicted probabilities
         """
         if not self._is_fitted:
             raise ValueError("Model must be fitted before prediction")
-        
-        K_test = self._compute_kernel_matrix(X, self.X_train, symmetric=False,
-                                              show_progress=show_progress)
-        
-        return self.svm.predict_proba(K_test)
+
+        return self.svm.predict_proba(X)
     
-    def get_kernel_matrix(self) -> np.ndarray:
-        """Get the training kernel matrix."""
-        if self.K_train is None:
+    def get_kernel_matrix(self, X1: np.ndarray, X2: np.ndarray) -> np.ndarray:
+        """Compute kernel matrix between two sets of data points."""
+        if not self._is_fitted:
             raise ValueError("Model must be fitted first")
-        return self.K_train
+        return self.kernel_matrix(X1, X2)
     
     def get_params(self) -> dict:
         """Get model parameters."""
@@ -274,7 +248,6 @@ class QuantumKernelSVM(BaseQuantumClassifier):
             pickle.dump({
                 "svm": self.svm,
                 "X_train": self.X_train,
-                "K_train": self.K_train,
                 "params": self.get_params(),
                 "training_time": self.training_time
             }, f)
@@ -296,7 +269,6 @@ class QuantumKernelSVM(BaseQuantumClassifier):
         )
         classifier.svm = data["svm"]
         classifier.X_train = data["X_train"]
-        classifier.K_train = data["K_train"]
         classifier.training_time = data["training_time"]
         classifier._is_fitted = True
         
@@ -304,10 +276,6 @@ class QuantumKernelSVM(BaseQuantumClassifier):
     
     def draw_circuit(self):
         """Draw the quantum kernel circuit."""
-        # Create sample inputs
         x1 = np.zeros(self.n_qubits)
         x2 = np.zeros(self.n_qubits)
-        
-        # Draw circuit
         print(qml.draw(self._kernel_circuit)(x1, x2))
-

@@ -1,6 +1,3 @@
-"""
-Base class for quantum classifiers.
-"""
 from abc import ABC, abstractmethod
 import numpy as np
 from typing import Optional, Dict, Any
@@ -11,7 +8,7 @@ class BaseQuantumClassifier(ABC):
     """
     Abstract base class for all quantum and hybrid classifiers.
     
-    Provides a consistent interface for training and prediction.
+    Interface for training and predicting.
     """
     
     def __init__(self, name: str = "BaseClassifier"):

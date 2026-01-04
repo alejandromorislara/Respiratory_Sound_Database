@@ -22,16 +22,16 @@ N_COMPONENTS_PCA = 8  # Number of PCA components (= number of qubits)
 PCA_VARIANCE_THRESHOLD = 0.95  # Minimum explained variance
 
 # Quantum settings
-N_QUBITS = 8  # Number of qubits for QSVM and VQC
+N_QUBITS = 8  # Number of qubits for QSVM and QNN
 N_QUBITS_HYBRID = 4  # Number of qubits for hybrid model
-N_LAYERS_VQC = 3  # Number of variational layers for VQC
-N_LAYERS_HYBRID = 2  # Number of variational layers for hybrid
+N_LAYERS_QNN = 2  # Number of variational layers for QNN
+N_LAYERS_HYBRID = 1  # Number of variational layers for hybrid
 
 # Training settings
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
 LEARNING_RATE = 0.01
-VQC_EPOCHS = 100
+QNN_EPOCHS = 100
 HYBRID_EPOCHS = 50
 BATCH_SIZE = 32
 

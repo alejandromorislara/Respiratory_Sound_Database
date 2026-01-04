@@ -1,5 +1,27 @@
-# Quantum circuit definitions
-from .embeddings import angle_embedding, amplitude_embedding
-from .ansatze import strongly_entangling_ansatz, basic_entangler_ansatz
-from .kernels import quantum_kernel, kernel_matrix
+"""
+Quantum circuits module for QML classification.
+"""
+from .circuits import (
+    # Data encoding
+    angle_embedding,
+    
+    # Variational ansatz
+    strongly_entangling_layers,
+    
+    # Quantum kernel (QSVM)
+    create_kernel_circuit,
+    compute_kernel_value,
+    compute_kernel_matrix,
+    
+    # Measurement
+    hermitian_projector,
+)
 
+__all__ = [
+    "angle_embedding",
+    "strongly_entangling_layers",
+    "create_kernel_circuit",
+    "compute_kernel_value",
+    "compute_kernel_matrix",
+    "hermitian_projector",
+]

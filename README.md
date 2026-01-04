@@ -35,7 +35,7 @@ quantum-respiratory-classification/
 │   │   ├── base.py              # BaseQuantumClassifier (abstract)
 │   │   ├── classical.py         # ClassicalSVM (baseline)
 │   │   ├── qsvm.py              # QuantumKernelSVM
-│   │   ├── vqc.py               # VariationalQuantumClassifier
+│   │   ├── qnn.py               # QuantumNeuralNetwork
 │   │   └── hybrid.py            # HybridQuantumClassifier
 │   │
 │   ├── circuits/                # Quantum circuits
@@ -72,11 +72,11 @@ quantum-respiratory-classification/
 - Kernel: K(x₁, x₂) = |⟨φ(x₁)|φ(x₂)⟩|²
 - Feature map with Hadamard, RZ, CNOT, and RY gates
 
-### 3. Variational Quantum Classifier (VQC)
+### 3. Quantum Neural Network (QNN)
 - Parameterized quantum circuit
 - Angle embedding for data encoding
 - StronglyEntanglingLayers as trainable ansatz
-- Pauli-Z measurement for classification
+- Hermitian measurement projecting to |0⟩ state
 
 ### 4. Hybrid Quantum-Classical Network
 - Classical preprocessing: Linear layers
@@ -188,15 +188,15 @@ features_df = extract_features_pipeline(
 
 ```python
 from src.models.qsvm import QuantumKernelSVM
-from src.models.vqc import VariationalQuantumClassifier
+from src.models.qnn import QuantumNeuralNetwork
 
 # QSVM
 qsvm = QuantumKernelSVM(n_qubits=8, feature_map='custom')
 qsvm.fit(X_train, y_train)
 
-# VQC
-vqc = VariationalQuantumClassifier(n_qubits=8, n_layers=3)
-vqc.fit(X_train, y_train, epochs=100)
+# QNN
+qnn = QuantumNeuralNetwork(n_qubits=8, n_layers=2)
+qnn.fit(X_train, y_train, epochs=100)
 ```
 
 ### 3. Run Complete Pipeline
@@ -235,7 +235,7 @@ train_df, test_df = splitter.split_dataframe(features_df)
 |-------|----------|-------------|---------------|
 | Classical SVM | 75-85% | 70-80% | < 1 min |
 | QSVM | 60-75% | 55-70% | 5-30 min |
-| VQC | 60-75% | 55-70% | 5-15 min |
+| QNN | 60-75% | 55-70% | 5-15 min |
 | Hybrid | 65-80% | 60-75% | 5-20 min |
 
 *Note: Quantum models are limited by simulation speed. Performance may differ on real quantum hardware.*
