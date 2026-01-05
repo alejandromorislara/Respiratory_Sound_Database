@@ -1,5 +1,5 @@
 """
-Path configurations for the Quantum Respiratory Classification project.
+Path configurations for the Respiratory Classification project.
 """
 from pathlib import Path
 
@@ -15,12 +15,6 @@ PATIENT_DIAGNOSIS_FILE = PROJECT_ROOT / "patient_diagnosis.csv"
 # Processed data paths
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 FEATURES_FILE = PROCESSED_DATA_DIR / "features.csv"
-FEATURES_PCA_FILE = PROCESSED_DATA_DIR / "features_pca.csv"
-
-# Split data paths
-SPLITS_DIR = DATA_DIR / "splits"
-TRAIN_FILE = SPLITS_DIR / "train.csv"
-TEST_FILE = SPLITS_DIR / "test.csv"
 
 # Model paths
 MODELS_DIR = PROJECT_ROOT / "models"
@@ -39,7 +33,6 @@ def ensure_directories():
         DATA_DIR,
         RAW_DATA_DIR,
         PROCESSED_DATA_DIR,
-        SPLITS_DIR,
         MODELS_DIR,
         RESULTS_DIR,
         FIGURES_DIR,
@@ -47,7 +40,5 @@ def ensure_directories():
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
 
-
-# Create directories on import
 ensure_directories()
 

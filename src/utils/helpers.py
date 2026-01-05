@@ -1,6 +1,3 @@
-"""
-Utility functions for the Quantum Respiratory Classification project.
-"""
 import numpy as np
 import pickle
 import time
@@ -119,37 +116,3 @@ def load_model(path: Path, model_class: Any = None) -> Any:
         # Pickle
         with open(path, "rb") as f:
             return pickle.load(f)
-
-
-def normalize_to_range(x: np.ndarray, 
-                       min_val: float = -np.pi, 
-                       max_val: float = np.pi) -> np.ndarray:
-    """
-    Normalize array to a specific range (default: [-pi, pi] for quantum encoding).
-    
-    Args:
-        x: Input array
-        min_val: Minimum value of output range
-        max_val: Maximum value of output range
-        
-    Returns:
-        Normalized array
-    """
-    x_min = x.min()
-    x_max = x.max()
-    
-    if x_max - x_min == 0:
-        return np.zeros_like(x) + (min_val + max_val) / 2
-    
-    return (x - x_min) / (x_max - x_min) * (max_val - min_val) + min_val
-
-
-def print_model_summary(model_name: str, params: dict) -> None:
-    """Print a formatted summary of model parameters."""
-    print("\n" + "=" * 50)
-    print(f"Model: {model_name}")
-    print("=" * 50)
-    for key, value in params.items():
-        print(f"  {key}: {value}")
-    print("=" * 50 + "\n")
-

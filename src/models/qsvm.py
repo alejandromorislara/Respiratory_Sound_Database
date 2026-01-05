@@ -1,6 +1,3 @@
-"""
-Quantum Kernel Support Vector Machine (QSVM).
-"""
 import numpy as np
 import pennylane as qml
 import pickle
@@ -28,7 +25,6 @@ class QuantumKernelSVM(BaseQuantumClassifier):
 
     @staticmethod
     def _get_optimal_device(n_qubits: int):
-        """Get the best available quantum device (GPU if possible)."""
         try:
             dev = qml.device("lightning.gpu", wires=n_qubits)
             print(f"Using Lightning GPU device")
@@ -72,18 +68,15 @@ class QuantumKernelSVM(BaseQuantumClassifier):
         self.class_weight = class_weight
         self.random_state = random_state
         
-        # Create quantum device
         self.dev = self._get_optimal_device(n_qubits)
         print(f"QSVM using device: {self.dev}")
 
-        # Create kernel circuit using circuits module
         self._kernel_circuit = create_kernel_circuit(
             self.dev, 
             n_qubits=self.n_qubits, 
             feature_map=self.feature_map
         )
         
-        # Store training data for kernel computation during prediction
         self.X_train = None
         self.svm = None
     
@@ -116,41 +109,6 @@ class QuantumKernelSVM(BaseQuantumClassifier):
             Kernel matrix (n_a, n_b)
         """
         return np.array([[self.quantum_kernel(a, b) for b in B] for a in A])
-    
-    def _compute_kernel_matrix(self, X1: np.ndarray, X2: np.ndarray,
-                               symmetric: bool = False,
-                               show_progress: bool = True) -> np.ndarray:
-        """
-        Compute kernel matrix with optional progress bar and symmetry optimization.
-        
-        Args:
-            X1: First set of data points
-            X2: Second set of data points
-            symmetric: Whether X1 == X2 (for efficiency)
-            show_progress: Whether to show progress bar
-            
-        Returns:
-            Kernel matrix
-        """
-        n1, n2 = len(X1), len(X2)
-        K = np.zeros((n1, n2))
-        
-        if symmetric:
-            pairs = [(i, j) for i in range(n1) for j in range(i, n2)]
-            desc = "Computing kernel (symmetric)"
-        else:
-            pairs = [(i, j) for i in range(n1) for j in range(n2)]
-            desc = "Computing kernel"
-        
-        iterator = tqdm(pairs, desc=desc) if show_progress else pairs
-        
-        for i, j in iterator:
-            k_val = self.quantum_kernel(X1[i], X2[j])
-            K[i, j] = k_val
-            if symmetric and i != j:
-                K[j, i] = k_val
-        
-        return K
     
     def fit(self, X: np.ndarray, y: np.ndarray,
             show_progress: bool = True) -> 'QuantumKernelSVM':

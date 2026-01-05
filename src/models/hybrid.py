@@ -1,9 +1,3 @@
-"""
-Hybrid Quantum-Classical Neural Network Classifier.
-
-This module provides:
-HybridQuantumClassifier: Neural network with embedded quantum layer
-"""
 import numpy as np
 import torch
 import torch.nn as nn
@@ -49,7 +43,7 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
                  early_stopping_patience: int = None,
                  random_state: int = RANDOM_STATE):
         """
-        Initialize the hybrid classifier following PL12 style.
+        Initialize the hybrid classifier.
         
         Args:
             input_dim: Number of input features
@@ -76,30 +70,24 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
         self.early_stopping_patience = early_stopping_patience
         self.random_state = random_state
         
-        # Early stopping tracking
         self.best_val_loss: float = float('inf')
         self.best_model_state: Optional[Dict] = None
         self.stopped_epoch: Optional[int] = None
         
-        # Set seeds
         torch.manual_seed(random_state)
         np.random.seed(random_state)
         
-        # Detect and use GPU if available
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"🖥️ PyTorch using: {self.device}")
         if self.device.type == "cuda":
             print(f"   GPU: {torch.cuda.get_device_name(0)}")
             print(f"   CUDA Version: {torch.version.cuda}")
         
-        # Create quantum device (try GPU first)
         self.dev = self._get_optimal_quantum_device(n_qubits)
         print(f"⚛️ Quantum device: {self.dev}")
         
-        # Initialize the model and move to GPU (no sigmoid at output)
         self.model = self._build_model().to(self.device)
         
-        # Loss function: BCE with optional class weighting
         if pos_weight is not None:
             pw_tensor = torch.tensor([pos_weight], device=self.device)
             self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw_tensor)
@@ -132,13 +120,10 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
         # Quantum circuit using circuits module
         @qml.qnode(dev, interface="torch")
         def quantum_circuit(inputs, weights):
-            # Angle embedding from circuits module
             angle_embedding(inputs, wires=range(n_qubits))
             
-            # Variational layers from circuits module
             strongly_entangling_layers(weights, wires=range(n_qubits))
             
-            # Return expectations for each qubit
             return [qml.expval(qml.PauliZ(i)) for i in range(n_qubits)]
         
         class QuantumLayer(nn.Module):
@@ -155,18 +140,14 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
                 device = x.device
                 outputs = []
                 
-                # Move weights to CPU for PennyLane (which runs on CPU)
                 weights_cpu = self.weights.cpu()
                 
                 for i in range(batch_size):
-                    # Move input to CPU and scale to [-pi, pi]
                     inputs_cpu = torch.tanh(x[i].cpu()) * np.pi
                     
-                    # Run quantum circuit (everything on CPU)
                     q_out = quantum_circuit(inputs_cpu, weights_cpu)
                     outputs.append(torch.stack(q_out))
                 
-                # Stack, convert to float32, and move back to original device
                 return torch.stack(outputs).float().to(device)
         
         class HybridNet(nn.Module):
@@ -178,7 +159,6 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
             def __init__(self, input_dim, n_qubits, n_layers, dropout_rate):
                 super().__init__()
                 
-                # Classical preprocessing with configurable dropout
                 self.classical_pre = nn.Sequential(
                     nn.Linear(input_dim, 32),
                     nn.ReLU(),
@@ -189,10 +169,8 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
                     nn.Linear(16, n_qubits)
                 )
                 
-                # Quantum layer
                 self.quantum = QuantumLayer(n_qubits, n_layers)
                 
-                # Classical postprocessing with dropout (no sigmoid - use BCEWithLogitsLoss)
                 self.classical_post = nn.Sequential(
                     nn.Linear(n_qubits, 8),
                     nn.ReLU(),
@@ -227,7 +205,6 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
         """
         start_time = time.time()
         
-        # Create validation split if early stopping is enabled and no validation_data provided
         X_train, y_train = X, y
         X_val, y_val = None, None
         
@@ -244,17 +221,14 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
             if verbose:
                 print(f"Using {len(X_train)} samples for training, {len(X_val)} for validation")
         
-        # Convert to tensors and move to GPU
         X_tensor = torch.FloatTensor(X_train).to(self.device)
         y_tensor = torch.FloatTensor(y_train).to(self.device)
         
-        # Create data loader
         dataset = TensorDataset(X_tensor, y_tensor)
         dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
         
         self.training_history = {"loss": [], "val_loss": []}
         
-        # Early stopping state
         self.best_val_loss = float('inf')
         self.best_model_state = None
         self.stopped_epoch = None
@@ -288,7 +262,6 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
                 val_loss = self._compute_loss(X_val, y_val)
                 self.training_history["val_loss"].append(val_loss)
                 
-                # Early stopping check
                 if self.early_stopping_patience is not None:
                     if val_loss < self.best_val_loss:
                         self.best_val_loss = val_loss
@@ -310,7 +283,6 @@ class HybridQuantumClassifier(BaseQuantumClassifier):
                     msg += f", val_loss: {val_loss:.4f}"
                 iterator.set_postfix_str(msg)
         
-        # Restore best model if early stopping was used
         if self.early_stopping_patience is not None and self.best_model_state is not None:
             self.model.load_state_dict({k: v.to(self.device) for k, v in self.best_model_state.items()})
             if verbose:

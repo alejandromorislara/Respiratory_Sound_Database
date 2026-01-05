@@ -1,12 +1,3 @@
-"""
-Quantum circuits for QML classification.
-
-This module provides the essential circuit components used by the models,
-Components:
-- Angle Embedding: Encode classical data as rotation angles 
-- Strongly Entangling Layers: Variational ansatz with entanglement 
-- Quantum Kernel: Overlap-based kernel for QSVM 
-"""
 import pennylane as qml
 from pennylane import numpy as pnp
 import numpy as np
@@ -18,7 +9,6 @@ def angle_embedding(x: np.ndarray, wires: List[int], rotation: str = "Y") -> Non
     Encode classical features as rotation angles.
     
     Each feature x[i] becomes a rotation angle on qubit i.
-    This is the standard encoding used in PL10, PL11, PL12.
     
     |ψ(x)⟩ = ⊗ᵢ R_rot(xᵢ)|0⟩
     
@@ -43,9 +33,7 @@ def strongly_entangling_layers(weights: np.ndarray, wires: List[int]) -> None:
     Each layer consists of:
     1. Single-qubit rotations (RX, RY, RZ) on each qubit
     2. CNOT gates creating entanglement between qubits
-    
-    This is the standard ansatz used in PL11 and PL12.
-    
+        
     Args:
         weights: Parameter array of shape (n_layers, n_qubits, 3)
                  Use qml.StronglyEntanglingLayers.shape(n_layers, n_qubits)
@@ -190,7 +178,6 @@ def hermitian_projector(wire: int = 0):
     Create Hermitian projector |0⟩⟨0| for measurement.
     
     Returns expected value in [0, 1], directly usable as probability.
-    This is the measurement style used in PL11.
     
     Args:
         wire: Qubit to measure (default: first qubit)

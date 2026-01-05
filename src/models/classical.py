@@ -1,6 +1,3 @@
-"""
-Classical SVM baseline classifier.
-"""
 import numpy as np
 import pickle
 import time

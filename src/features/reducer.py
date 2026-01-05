@@ -1,6 +1,3 @@
-"""
-Dimensionality reduction for quantum machine learning compatibility.
-"""
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler

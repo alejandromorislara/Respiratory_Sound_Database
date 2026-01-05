@@ -260,38 +260,6 @@ class ResultsVisualizer:
         
         return fig
     
-    def plot_kernel_matrix(self, K: np.ndarray,
-                          model_name: str = "Quantum Kernel",
-                          save: bool = True) -> plt.Figure:
-        """
-        Plot quantum kernel matrix as heatmap.
-        
-        Args:
-            K: Kernel matrix
-            model_name: Name of the model
-            save: Whether to save the figure
-            
-        Returns:
-            Matplotlib figure
-        """
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        im = ax.imshow(K, cmap='viridis', aspect='auto')
-        plt.colorbar(im, ax=ax, label='Kernel Value')
-        
-        ax.set_xlabel('Sample Index', fontsize=12)
-        ax.set_ylabel('Sample Index', fontsize=12)
-        ax.set_title(f'Kernel Matrix - {model_name}', fontsize=14)
-        
-        plt.tight_layout()
-        
-        if save:
-            filepath = self.save_dir / f"kernel_matrix_{model_name.lower().replace(' ', '_')}.png"
-            fig.savefig(filepath, dpi=150, bbox_inches='tight')
-            print(f"Saved: {filepath}")
-        
-        return fig
-    
     def plot_pca_variance(self, explained_variance: np.ndarray,
                          n_selected: int,
                          save: bool = True) -> plt.Figure:

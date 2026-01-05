@@ -1,19 +1,11 @@
-"""
-Quantum Neural Network (QNN) with gradient monitoring.
-
-This module implements a QNN following the style of PL11 notebook,
-with barren plateau detection capabilities. Barren plateaus are 
-exponentially flat regions in the optimization landscape where 
-gradients vanish, making training impossible.
-"""
 import numpy as np
 import pennylane as qml
 from pennylane import numpy as pnp
-from pennylane.optimize import AdamOptimizer, GradientDescentOptimizer
+from pennylane.optimize import AdamOptimizer
 import pickle
 import time
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict
 from tqdm import tqdm
 import warnings
 
@@ -33,12 +25,10 @@ class QuantumNeuralNetwork(BaseQuantumClassifier):
     Architecture:
     1. Angle Embedding for data encoding
     2. Strongly Entangling Layers (trainable)
-    3. Hermitian measurement projecting to |0> state on first qubit
     """
 
     @staticmethod
     def _get_optimal_device(n_qubits: int):
-        """Get the best available quantum device (GPU if possible)."""
         try:
             dev = qml.device("lightning.gpu", wires=n_qubits)
             print(f"Using Lightning GPU device")
@@ -94,26 +84,21 @@ class QuantumNeuralNetwork(BaseQuantumClassifier):
         self.validation_split = validation_split
         self.random_state = random_state
         
-        # Initialize weights
         np.random.seed(random_state)
         weight_shape = qml.StronglyEntanglingLayers.shape(n_layers, n_qubits)
         self.weights = pnp.array(np.random.randn(*weight_shape) * 0.1, 
                                   requires_grad=True)
         
-        # Create quantum circuit
         self.dev = self._get_optimal_device(n_qubits)
         print(f"QNN using device: {self.dev}")
         self._create_circuit()
         
-        # Optimizer
         self.optimizer = AdamOptimizer(stepsize=learning_rate)
         
-        # Gradient monitoring
         self.gradient_history: List[float] = []
         self.barren_plateau_detected: bool = False
         self.barren_plateau_epoch: Optional[int] = None
         
-        # Early stopping tracking
         self.best_val_loss: float = float('inf')
         self.best_weights: Optional[np.ndarray] = None
         self.stopped_epoch: Optional[int] = None
@@ -125,10 +110,7 @@ class QuantumNeuralNetwork(BaseQuantumClassifier):
         
         @qml.qnode(self.dev, interface="autograd")
         def circuit(weights, x):
-            # Data encoding using circuits module
             angle_embedding(x, wires=range(n_qubits))
-            
-            # Variational layers using circuits module
             strongly_entangling_layers(weights, wires=range(n_qubits))
             
             return qml.expval(hermitian_projector(wire=0))
@@ -169,9 +151,6 @@ class QuantumNeuralNetwork(BaseQuantumClassifier):
                                 X: np.ndarray, y: np.ndarray) -> float:
         """
         Compute the L2 norm of the gradient of the cost function.
-        
-        This is used to detect barren plateaus, where gradients become
-        exponentially small, making training impossible.
         
         Args:
             weights: Current weights
@@ -340,7 +319,6 @@ class QuantumNeuralNetwork(BaseQuantumClassifier):
                                       f"Best val_loss: {self.best_val_loss:.4f}")
                             break
             
-            # Monitor gradients if enabled
             if self.monitor_gradients and (epoch % 5 == 0 or epoch == self.epochs - 1):
                 grad_norm = self._compute_gradient_norm(self.weights, X_batch, y_batch)
                 self.gradient_history.append(grad_norm)

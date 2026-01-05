@@ -1,6 +1,3 @@
-"""
-Data loading utilities for the Respiratory Sound Database.
-"""
 import pandas as pd
 import numpy as np
 import librosa

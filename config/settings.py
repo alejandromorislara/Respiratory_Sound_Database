@@ -1,7 +1,3 @@
-"""
-Global settings and constants for the project.
-"""
-
 # Audio processing settings
 SAMPLE_RATE = 22050  # Hz
 N_MFCC = 13  # Number of MFCC coefficients
@@ -34,15 +30,6 @@ LEARNING_RATE = 0.01
 QNN_EPOCHS = 100
 HYBRID_EPOCHS = 50
 BATCH_SIZE = 32
-
-# Cross-validation settings
-N_OUTER_FOLDS = 5  # Outer folds for nested CV (performance estimation)
-N_INNER_FOLDS = 3  # Inner folds for nested CV (hyperparameter tuning)
-N_CV_REPETITIONS = 5  # Repetitions for 5x2cv statistical testing
-
-# Ensemble settings
-N_ENSEMBLE_ESTIMATORS = 'auto'  # 'auto' = ceil(n_majority / n_minority)
-ENSEMBLE_VOTING = 'soft'  # 'soft' (probability averaging) or 'hard' (majority vote)
 
 # Classification settings
 TARGET_CLASSES = {

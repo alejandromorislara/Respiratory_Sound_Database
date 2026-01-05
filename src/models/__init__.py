@@ -1,4 +1,3 @@
-# Classification models
 from .base import BaseQuantumClassifier
 from .classical import ClassicalSVM
 from .qsvm import QuantumKernelSVM
