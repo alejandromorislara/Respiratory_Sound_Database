@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from config.settings import TEST_SIZE, RANDOM_STATE, N_OUTER_FOLDS, N_INNER_FOLDS
+from config.settings import TEST_SIZE, RANDOM_STATE
 
 
 class PatientWiseSplitter:

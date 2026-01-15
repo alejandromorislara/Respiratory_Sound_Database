@@ -1,47 +1,30 @@
 """
-Audio feature extraction for respiratory sounds using MFCCs.
+Audio feature extraction and augmentation for respiratory sounds.
 """
 import numpy as np
 import pandas as pd
 import librosa
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 from tqdm import tqdm
 
 import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from config.settings import (
-    SAMPLE_RATE, N_MFCC, HOP_LENGTH, N_FFT, 
-    FEATURE_NAMES, TARGET_CLASSES
-)
-from config.paths import AUDIO_DIR, FEATURES_FILE, PATIENT_DIAGNOSIS_FILE
+from config.settings import SAMPLE_RATE, N_MFCC, HOP_LENGTH, N_FFT, TARGET_CLASSES
+from config.paths import AUDIO_DIR, PATIENT_DIAGNOSIS_FILE
 
 
 class AudioFeatureExtractor:
     """
-    Extracts audio features (MFCCs and their deltas) from respiratory sound segments.
-    
-    Features extracted (52 total):
-    - 13 MFCCs (mean)
-    - 13 MFCCs (std)
-    - 13 Delta MFCCs (mean)
-    - 13 Delta MFCCs (std)
+    Extracts audio features (MFCCs and deltas) from respiratory sound segments.
+    Also provides audio augmentation methods for data balancing.
     """
     
     def __init__(self, n_mfcc: int = N_MFCC, 
                  sr: int = SAMPLE_RATE,
                  hop_length: int = HOP_LENGTH,
                  n_fft: int = N_FFT):
-        """
-        Initialize the feature extractor.
-        
-        Args:
-            n_mfcc: Number of MFCC coefficients to extract
-            sr: Sample rate for audio processing
-            hop_length: Hop length for MFCC computation
-            n_fft: FFT window size
-        """
         self.n_mfcc = n_mfcc
         self.sr = sr
         self.hop_length = hop_length
@@ -59,22 +42,72 @@ class AudioFeatureExtractor:
                 names.append(f"delta_mfcc_{i}_{stat}")
         return names
     
+    def time_stretch(self, audio: np.ndarray, rate: Optional[float] = None) -> np.ndarray:
+        """
+        Apply time stretching to audio without changing pitch.
+        Rate > 1.0 speeds up, rate < 1.0 slows down.
+        """
+        if rate is None:
+            rate = np.random.uniform(0.8, 1.2)
+        rate = np.clip(rate, 0.5, 2.0)
+        try:
+            return librosa.effects.time_stretch(audio, rate=rate)
+        except Exception:
+            return audio
+    
+    def pitch_shift(self, audio: np.ndarray, n_steps: Optional[float] = None) -> np.ndarray:
+        """
+        Shift pitch by n_steps semitones without changing duration.
+        """
+        if n_steps is None:
+            n_steps = np.random.uniform(-2, 2)
+        try:
+            return librosa.effects.pitch_shift(audio, sr=self.sr, n_steps=n_steps)
+        except Exception:
+            return audio
+    
+    def add_noise(self, audio: np.ndarray, noise_factor: Optional[float] = None) -> np.ndarray:
+        """
+        Add white noise to audio for robustness.
+        """
+        if noise_factor is None:
+            noise_factor = np.random.uniform(0.001, 0.01)
+        noise = np.random.randn(len(audio))
+        signal_power = np.sqrt(np.mean(audio ** 2))
+        noise_power = noise_factor * signal_power
+        return audio + noise_power * noise
+    
+    def augment_audio(self, audio: np.ndarray, 
+                      n_augmentations: int = 3,
+                      use_time_stretch: bool = True,
+                      use_pitch_shift: bool = True,
+                      use_noise: bool = True) -> List[np.ndarray]:
+        """
+        Generate multiple augmented versions of an audio sample.
+        Combines time stretching, pitch shifting, and noise addition.
+        """
+        augmented = [audio]
+        
+        for _ in range(n_augmentations):
+            aug = audio.copy()
+            if use_time_stretch and np.random.random() > 0.5:
+                aug = self.time_stretch(aug)
+            if use_pitch_shift and np.random.random() > 0.5:
+                aug = self.pitch_shift(aug)
+            if use_noise and np.random.random() > 0.5:
+                aug = self.add_noise(aug)
+            augmented.append(aug)
+        
+        return augmented
+    
     def extract_from_segment(self, audio: np.ndarray) -> np.ndarray:
         """
-        Extract features from a single audio segment (respiratory cycle).
-        
-        Args:
-            audio: Audio signal as numpy array
-            
-        Returns:
-            Feature vector (52 dimensions)
+        Extract MFCC features from a single audio segment.
+        Returns feature vector of 52 dimensions.
         """
-        # Handle empty or very short segments
         if len(audio) < self.n_fft:
-            # Pad with zeros if too short
             audio = np.pad(audio, (0, self.n_fft - len(audio)), mode='constant')
         
-        # Extract MFCCs
         mfccs = librosa.feature.mfcc(
             y=audio, 
             sr=self.sr, 
@@ -82,53 +115,36 @@ class AudioFeatureExtractor:
             hop_length=self.hop_length,
             n_fft=self.n_fft
         )
-        
-        # Compute delta MFCCs (first derivative)
         delta_mfccs = librosa.feature.delta(mfccs)
         
-        # Compute statistics: mean and std for each coefficient
         features = np.concatenate([
-            mfccs.mean(axis=1),         # 13 values: mean of each MFCC
-            mfccs.std(axis=1),          # 13 values: std of each MFCC
-            delta_mfccs.mean(axis=1),   # 13 values: mean of each delta MFCC
-            delta_mfccs.std(axis=1)     # 13 values: std of each delta MFCC
+            mfccs.mean(axis=1),
+            mfccs.std(axis=1),
+            delta_mfccs.mean(axis=1),
+            delta_mfccs.std(axis=1)
         ])
-        
-        return features  # 52 dimensions total
+        return features
     
     def extract_from_file(self, audio_path: Path) -> List[Tuple[np.ndarray, dict]]:
-        """
-        Extract features from all respiratory cycles in an audio file.
-        
-        Args:
-            audio_path: Path to the audio file
-            
-        Returns:
-            List of tuples (features, metadata)
-        """
-        # Load audio
+        """Extract features from all respiratory cycles in an audio file."""
         audio, sr = librosa.load(audio_path, sr=self.sr)
         
-        # Load annotations
         annotation_path = audio_path.with_suffix(".txt")
         if not annotation_path.exists():
             return []
         
         cycles = self._load_annotations(annotation_path)
-        
         results = []
+        
         for cycle in cycles:
-            # Extract segment
             start_sample = int(cycle["start"] * sr)
             end_sample = int(cycle["end"] * sr)
-            
             start_sample = max(0, start_sample)
             end_sample = min(len(audio), end_sample)
             
             if end_sample > start_sample:
                 segment = audio[start_sample:end_sample]
                 features = self.extract_from_segment(segment)
-                
                 results.append((features, cycle))
         
         return results
@@ -148,24 +164,6 @@ class AudioFeatureExtractor:
                     })
         return cycles
     
-    def extract_from_dataframe(self, df: pd.DataFrame, 
-                               audio_col: str = "audio") -> np.ndarray:
-        """
-        Extract features from audio segments stored in a DataFrame.
-        
-        Args:
-            df: DataFrame with audio segments
-            audio_col: Name of column containing audio arrays
-            
-        Returns:
-            Feature matrix (n_samples x n_features)
-        """
-        features = []
-        for audio in tqdm(df[audio_col], desc="Extracting features"):
-            features.append(self.extract_from_segment(audio))
-        
-        return np.array(features)
-    
     def extract_dataset(self, audio_dir: Optional[Path] = None,
                         diagnosis_file: Optional[Path] = None,
                         filter_classes: Optional[List[str]] = None,
@@ -173,39 +171,24 @@ class AudioFeatureExtractor:
                         show_progress: bool = True) -> pd.DataFrame:
         """
         Extract features from all audio files in a directory.
-        
-        Args:
-            audio_dir: Directory containing audio files
-            diagnosis_file: Path to patient diagnosis CSV
-            filter_classes: List of diagnosis classes to include
-            save_path: Path to save the resulting DataFrame
-            show_progress: Whether to show progress bar
-            
-        Returns:
-            DataFrame with features and metadata
         """
         audio_dir = audio_dir or AUDIO_DIR
         diagnosis_file = diagnosis_file or PATIENT_DIAGNOSIS_FILE
         
-        # Load patient diagnoses
         diagnosis_df = pd.read_csv(diagnosis_file, header=None,
                                    names=["patient_id", "diagnosis"])
         
-        # Get audio files
         audio_files = sorted(audio_dir.glob("*.wav"))
         
-        # Filter by diagnosis if specified
         if filter_classes:
             valid_patients = diagnosis_df[
                 diagnosis_df["diagnosis"].isin(filter_classes)
             ]["patient_id"].values
-            
             audio_files = [
                 f for f in audio_files
                 if int(f.stem.split("_")[0]) in valid_patients
             ]
         
-        # Extract features
         all_data = []
         iterator = tqdm(audio_files, desc="Processing files") if show_progress else audio_files
         
@@ -215,7 +198,6 @@ class AudioFeatureExtractor:
                 diagnosis_df["patient_id"] == patient_id
             ]["diagnosis"].values[0]
             
-            # Extract features from all cycles in this file
             results = self.extract_from_file(audio_path)
             
             for features, cycle_info in results:
@@ -229,16 +211,12 @@ class AudioFeatureExtractor:
                     "wheezes": cycle_info["wheezes"],
                     "label": TARGET_CLASSES.get(diagnosis, -1)
                 }
-                
-                # Add features
                 for i, feat_name in enumerate(self.feature_names):
                     row[feat_name] = features[i]
-                
                 all_data.append(row)
         
         df = pd.DataFrame(all_data)
         
-        # Save if path provided
         if save_path:
             save_path = Path(save_path)
             save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -248,42 +226,5 @@ class AudioFeatureExtractor:
         return df
     
     def get_feature_matrix(self, df: pd.DataFrame) -> np.ndarray:
-        """
-        Extract feature matrix from a DataFrame with feature columns.
-        
-        Args:
-            df: DataFrame with feature columns
-            
-        Returns:
-            Feature matrix (n_samples x n_features)
-        """
+        """Extract feature matrix from a DataFrame with feature columns."""
         return df[self.feature_names].values
-
-
-def extract_features_pipeline(filter_classes: List[str] = ["Healthy", "COPD"],
-                              save: bool = True) -> pd.DataFrame:
-    """
-    Complete feature extraction pipeline.
-    
-    Args:
-        filter_classes: Classes to include in the dataset
-        save: Whether to save the result to disk
-        
-    Returns:
-        DataFrame with extracted features
-    """
-    extractor = AudioFeatureExtractor()
-    
-    save_path = FEATURES_FILE if save else None
-    
-    df = extractor.extract_dataset(
-        filter_classes=filter_classes,
-        save_path=save_path,
-        show_progress=True
-    )
-    
-    print(f"\nExtracted {len(df)} samples from {df['patient_id'].nunique()} patients")
-    print(f"Class distribution: {df['diagnosis'].value_counts().to_dict()}")
-    
-    return df
-

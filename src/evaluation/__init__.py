@@ -1,3 +1,1 @@
-from .metrics import MedicalMetrics
-from .visualizer import ResultsVisualizer
-
+from .metrics import MedicalMetrics, compare_models, print_comparison_table

@@ -1,260 +1,248 @@
-# Quantum Machine Learning for Respiratory Sound Classification
+# Clasificación Cuántica de Sonidos Respiratorios
 
-## Classification of COPD vs Healthy using Quantum Computing
+## Detección de EPOC mediante Aprendizaje Automático Cuántico
 
 ---
 
-## Overview
+**Autor:** Alejandro Moris Lara  
+---
 
-This project implements **Quantum Machine Learning (QML)** techniques for classifying respiratory sounds from the ICBHI Respiratory Sound Database. The goal is to distinguish between **Healthy** and **COPD** (Chronic Obstructive Pulmonary Disease) patients using quantum computing approaches.
+### Resumen
 
-## Project Structure
+Este trabajo presenta un estudio comparativo de técnicas de Aprendizaje Automático Cuántico (QML) para la clasificación binaria de sonidos respiratorios, distinguiendo entre pacientes sanos y pacientes con Enfermedad Pulmonar Obstructiva Crónica (EPOC). Se implementan y evalúan tres enfoques cuánticos: Quantum Support Vector Machines (QSVM), Redes Neuronales Cuánticas (QNN) y redes híbridas cuántico-clásicas, comparándolos con un baseline clásico basado en SVM.
+
+---
+
+### Tabla de Contenidos
+
+1. [Introducción](#1-introducción)
+2. [Objetivos](#2-objetivos)
+3. [Selección y Estudio del Dataset](#3-selección-y-estudio-del-dataset)
+4. [Preparación de los Datos](#4-preparación-de-los-datos)
+5. [Modelos de Clasificación](#5-modelos-de-clasificación)
+6. [Resultados](#6-resultados)
+7. [Conclusiones](#7-conclusiones)
+8. [Estructura del Proyecto](#8-estructura-del-proyecto)
+9. [Instalación y Uso](#9-instalación-y-uso)
+
+---
+
+## 1. Introducción
+
+La Enfermedad Pulmonar Obstructiva Crónica (EPOC) representa uno de los principales desafíos de salud pública a nivel mundial, siendo la tercera causa de muerte según la Organización Mundial de la Salud. El diagnóstico temprano es fundamental para mejorar el pronóstico de los pacientes.
+
+El Aprendizaje Automático Cuántico (QML) emerge como un paradigma prometedor que combina las capacidades del aprendizaje automático clásico con las propiedades únicas de la computación cuántica, como la superposición y el entrelazamiento.
+
+Este trabajo explora la aplicación de tres técnicas de QML para la clasificación automática de sonidos respiratorios:
+
+- **Quantum Support Vector Machines (QSVM)**
+- **Redes Neuronales Cuánticas (QNN)**
+- **Redes Híbridas Cuántico-Clásicas**
+
+---
+
+## 2. Objetivos
+
+### Objetivo General
+
+Desarrollar y evaluar modelos de clasificación cuántica para la detección automática de EPOC a partir del análisis de sonidos respiratorios, comparando su rendimiento con técnicas de aprendizaje automático clásico.
+
+### Objetivos Específicos
+
+1. Preparar y analizar el conjunto de datos de sonidos respiratorios
+2. Implementar un clasificador QSVM con kernel cuántico
+3. Desarrollar una Red Neuronal Cuántica (QNN)
+4. Crear una red híbrida cuántico-clásica
+5. Realizar una comparativa rigurosa de todos los modelos
+
+---
+
+## 3. Selección y Estudio del Dataset
+
+### Procedencia de los Datos
+
+Se utiliza el **ICBHI 2017 Respiratory Sound Database**, disponible en [Kaggle](https://www.kaggle.com/datasets/vbookshelf/respiratory-sound-database). Este dataset contiene grabaciones de sonidos respiratorios adquiridos mediante estetoscopios digitales.
+
+### Descripción del Dataset
+
+| Característica | Valor |
+|---------------|-------|
+| Total de archivos de audio | 920 |
+| Número de pacientes | 126 (90 utilizados) |
+| Diagnósticos | Healthy, COPD |
+| Muestras totales | 6,068 ciclos respiratorios |
+| Frecuencia de muestreo | 4000-44100 Hz |
+
+### Análisis Exploratorio
+
+El dataset presenta un **desbalance severo de clases** con un ratio aproximado de 18:1 entre pacientes con EPOC y sujetos sanos.
+
+![Distribución de Clases](results/figures/class_distribution.png)
+
+---
+
+## 4. Preparación de los Datos
+
+### 4.1 Extracción de Características
+
+Se extraen características acústicas basadas en **Coeficientes Cepstrales en las Frecuencias de Mel (MFCC)**:
+
+| Tipo de característica | Cantidad |
+|----------------------|----------|
+| MFCC (media) | 13 |
+| MFCC (std) | 13 |
+| Delta MFCC (media) | 13 |
+| Delta MFCC (std) | 13 |
+| **Total** | **52** |
+
+### 4.2 Reducción de Dimensionalidad
+
+Se aplica **PCA** para reducir las 52 características originales a **8 componentes principales**, correspondientes al número de qubits del circuito cuántico.
+
+### 4.3 División de Datos por Pacientes
+
+Se implementa una **división estratificada por pacientes** (80% train / 20% test) para evitar fuga de información.
+
+### 4.4 Tratamiento del Desbalance de Clases
+
+Se emplea **SMOTE** (Synthetic Minority Over-sampling Technique) para balancear las clases mediante sobremuestreo sintético de la clase minoritaria.
+
+---
+
+## 5. Modelos de Clasificación
+
+### 5.1 Baseline Clásico: SVM
+
+Support Vector Machine con kernel RBF optimizado mediante GridSearchCV.
+
+### 5.2 Quantum Support Vector Machine (QSVM)
+
+- Kernel cuántico basado en **AngleEmbedding**
+- 8 qubits (1 por feature)
+- Proyector sobre estado |0⟩^⊗n
+
+### 5.3 Red Neuronal Cuántica (QNN)
+
+- Circuito variacional con **StronglyEntanglingLayers**
+- 8 qubits, 2 capas
+- Optimizador: Adam (lr=0.01)
+- 50 epochs
+
+### 5.4 Red Híbrida Cuántico-Clásica
+
+- Dense(16) → ReLU
+- Capa cuántica (4 qubits, 2 capas)
+- Dense(1) → Sigmoid
+- Optimizador: Adam (lr=0.001)
+- 30 epochs
+
+---
+
+## 6. Resultados
+
+### Comparativa de Modelos por Métrica
+
+![Comparativa de Modelos](results/figures/model_comparison.png)
+
+### Curvas ROC
+
+![Curvas ROC](results/figures/roc_curves.png)
+
+### Matrices de Confusión
+
+![Matrices de Confusión](results/figures/confusion_matrices.png)
+
+### Tiempos de Entrenamiento
+
+![Tiempos de Entrenamiento](results/figures/training_times.png)
+
+### Tabla Resumen
+
+| Modelo | Accuracy | Sensibilidad | Especificidad | AUC-ROC | Tiempo (s) |
+|--------|----------|--------------|---------------|---------|------------|
+| SVM Clásico | 0.835 | 0.823 | 0.948 | 0.952 | 3.4 |
+| QSVM | 0.387 | 0.329 | 0.918 | 0.736 | 1,062 |
+| QNN | 0.464 | 0.453 | 0.557 | 0.509 | 5,813 |
+| Híbrido | 0.780 | 0.768 | 0.897 | 0.918 | 604 |
+
+---
+
+## 7. Conclusiones
+
+- El **SVM clásico** obtiene el mejor rendimiento en todas las métricas (AUC = 0.952)
+- El **modelo híbrido** es el mejor enfoque cuántico (AUC = 0.918), solo 3.4 puntos por debajo del clásico
+- El **QSVM** presenta comportamiento sesgado hacia la clase mayoritaria
+- La **QNN** muestra rendimiento cercano al aleatorio (AUC ≈ 0.5)
+- Los modelos cuánticos requieren tiempos de entrenamiento significativamente mayores (hasta 1700x más)
+- El desbalance de clases (18:1) afecta especialmente a los modelos cuánticos puros
+
+---
+
+## 8. Estructura del Proyecto
 
 ```
-quantum-respiratory-classification/
-│
-├── config/                      # Configuration files
-│   ├── settings.py              # Global constants (N_MFCC, N_QUBITS, etc.)
-│   └── paths.py                 # Project paths
-│
+Respiratory_Sound_Database/
+├── config/
+│   ├── paths.py                 # Rutas del proyecto
+│   └── settings.py              # Hiperparámetros
 ├── data/
-│   ├── raw/                     # Original Kaggle data
-│   ├── processed/               # Extracted features (CSV)
-│   └── splits/                  # Train/test splits
-│
-├── src/                         # Source code (OOP)
-│   ├── data/                    # Data loading and splitting
-│   │   ├── loader.py            # DataLoader class
-│   │   └── splitter.py          # PatientWiseSplitter class
-│   │
-│   ├── features/                # Feature extraction
-│   │   ├── extractor.py         # AudioFeatureExtractor class
-│   │   └── reducer.py           # DimensionalityReducer class
-│   │
-│   ├── models/                  # Classification models
-│   │   ├── base.py              # BaseQuantumClassifier (abstract)
-│   │   ├── classical.py         # ClassicalSVM (baseline)
-│   │   ├── qsvm.py              # QuantumKernelSVM
-│   │   ├── qnn.py               # QuantumNeuralNetwork
-│   │   └── hybrid.py            # HybridQuantumClassifier
-│   │
-│   ├── circuits/                # Quantum circuits
-│   │   ├── embeddings.py        # Data encoding circuits
-│   │   ├── ansatze.py           # Variational ansatze
-│   │   └── kernels.py           # Quantum kernel functions
-│   │
-│   ├── evaluation/              # Evaluation utilities
-│   │   ├── metrics.py           # MedicalMetrics class
-│   │   └── visualizer.py        # ResultsVisualizer class
-│   │
-│   └── utils/                   # Helper functions
-│       └── helpers.py
-│
-├── notebooks/                   # Jupyter notebooks
-│   └── 07_Final_Comparison.ipynb  # Main notebook for evaluation
-│
-├── results/                     # Output results
-│   └── figures/                 # Generated plots
-│
-├── requirements.txt             # Python dependencies
-└── README.md                    # This file
+│   └── processed/
+│       └── features.csv         # Features extraídas
+├── notebooks/
+│   └── 01_main.ipynb            # Notebook principal
+├── results/
+│   └── figures/                 # Visualizaciones
+├── src/
+│   ├── circuits/
+│   │   └── circuits.py          # Circuitos cuánticos
+│   ├── data/
+│   │   ├── loader.py
+│   │   └── splitter.py          # División por pacientes
+│   ├── evaluation/
+│   │   └── metrics.py           # Métricas médicas
+│   ├── features/
+│   │   ├── balancing.py         # SMOTE
+│   │   ├── extractor.py         # Extracción MFCCs
+│   │   └── reducer.py           # PCA
+│   └── models/
+│       ├── classical.py         # SVM
+│       ├── qsvm.py              # Quantum SVM
+│       ├── qnn.py               # Red Neuronal Cuántica
+│       └── hybrid.py            # Red Híbrida
+├── audio_and_txt_files/         # Audios originales
+├── patient_diagnosis.csv
+├── requirements.txt
+└── README.md
 ```
 
-## Models Implemented
+---
 
-### 1. Classical SVM (Baseline)
-- Standard Support Vector Machine with RBF kernel
-- Uses scikit-learn implementation
-- Serves as performance baseline
+## 9. Instalación y Uso
 
-### 2. Quantum Kernel SVM (QSVM)
-- Uses quantum circuit to compute kernel values
-- Kernel: K(x₁, x₂) = |⟨φ(x₁)|φ(x₂)⟩|²
-- Feature map with Hadamard, RZ, CNOT, and RY gates
+### Requisitos
 
-### 3. Quantum Neural Network (QNN)
-- Parameterized quantum circuit
-- Angle embedding for data encoding
-- StronglyEntanglingLayers as trainable ansatz
-- Hermitian measurement projecting to |0⟩ state
+- Python 3.10+
+- PennyLane, Scikit-learn, TensorFlow, Librosa
 
-### 4. Hybrid Quantum-Classical Network
-- Classical preprocessing: Linear layers
-- Quantum layer: 4 qubits with variational circuit
-- Classical postprocessing: Output classification
-- Trained end-to-end with PyTorch
-
-## Dataset
-
-**ICBHI 2017 Respiratory Sound Database**
-- Source: Kaggle
-- 920 audio files from 126 patients
-- Diagnoses: COPD, Healthy, URTI, LRTI, Asthma, etc.
-- Binary task: Healthy vs COPD (90 patients)
-
-## Features
-
-**MFCC Feature Extraction (52 dimensions)**
-| Feature Type | Count |
-|-------------|-------|
-| MFCC Mean | 13 |
-| MFCC Std | 13 |
-| Delta MFCC Mean | 13 |
-| Delta MFCC Std | 13 |
-
-**Dimensionality Reduction**
-- PCA: 52 → 8 components (for quantum compatibility)
-- Explains ~95% variance
-
-## Installation
-
-### Quick Install (Recommended)
-
-**Windows:**
-```bash
-# Run the installer script
-install.bat
-```
-
-**Linux/Mac:**
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-### Manual Installation
+### Instalación
 
 ```bash
-# Create virtual environment (Python 3.10+ recommended)
-python -m venv .venv
-
-# Activate
-.venv\Scripts\activate  # Windows
-source .venv/bin/activate  # Linux/Mac
-
-# Install PyTorch (choose one):
-# CPU only:
-pip install torch torchvision torchaudio
-
-# CUDA 11.8:
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# CUDA 12.1:
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# Install remaining dependencies
+python -m venv venv
+venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 ```
 
-### Verify CUDA Installation
-
-```python
-import torch
-print(f"CUDA available: {torch.cuda.is_available()}")
-print(f"CUDA version: {torch.version.cuda}")
-print(f"GPU: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A'}")
-```
-
-## Requirements
-
-- **Python 3.10+** (required for PennyLane compatibility)
-- PennyLane 0.35.1 (stable)
-- PyTorch >= 2.0.0 (with optional CUDA support)
-- librosa >= 0.10.0
-- scikit-learn >= 1.2.0
-
-### GPU Acceleration
-
-The hybrid quantum-classical model can use CUDA for the classical layers:
-- CUDA 11.8 or 12.1 recommended
-- PennyLane uses `default.qubit` (CPU) for quantum simulation
-- For GPU quantum simulation, use `pennylane-lightning-gpu` (requires cuQuantum)
-
-## Usage
-
-### 1. Feature Extraction
-
-```python
-from src.features.extractor import extract_features_pipeline
-
-# Extract features for Healthy vs COPD classification
-features_df = extract_features_pipeline(
-    filter_classes=['Healthy', 'COPD'],
-    save=True
-)
-```
-
-### 2. Training Models
-
-```python
-from src.models.qsvm import QuantumKernelSVM
-from src.models.qnn import QuantumNeuralNetwork
-
-# QSVM
-qsvm = QuantumKernelSVM(n_qubits=8, feature_map='custom')
-qsvm.fit(X_train, y_train)
-
-# QNN
-qnn = QuantumNeuralNetwork(n_qubits=8, n_layers=2)
-qnn.fit(X_train, y_train, epochs=100)
-```
-
-### 3. Run Complete Pipeline
+### Ejecución
 
 ```bash
-# Open the final comparison notebook
-jupyter notebook notebooks/07_Final_Comparison.ipynb
+cd notebooks
+jupyter notebook 01_main.ipynb
 ```
-
-## Key Considerations
-
-### Patient-Wise Split
-To avoid data leakage, all samples from the same patient must be in the same split:
-```python
-from src.data.splitter import PatientWiseSplitter
-splitter = PatientWiseSplitter(test_size=0.2)
-train_df, test_df = splitter.split_dataframe(features_df)
-```
-
-### Quantum Simulation Limits
-- Simulation scales exponentially with qubits
-- 8 qubits is practical for classical simulation
-- Subsample data for reasonable training times
-
-## Medical Metrics
-
-| Metric | Description | Clinical Importance |
-|--------|-------------|---------------------|
-| Sensitivity | TP/(TP+FN) | Detect sick patients |
-| Specificity | TN/(TN+FP) | Identify healthy patients |
-| AUC-ROC | Area under curve | Overall discrimination |
-
-## Expected Results
-
-| Model | Accuracy | Sensitivity | Training Time |
-|-------|----------|-------------|---------------|
-| Classical SVM | 75-85% | 70-80% | < 1 min |
-| QSVM | 60-75% | 55-70% | 5-30 min |
-| QNN | 60-75% | 55-70% | 5-15 min |
-| Hybrid | 65-80% | 60-75% | 5-20 min |
-
-*Note: Quantum models are limited by simulation speed. Performance may differ on real quantum hardware.*
-
-## References
-
-1. ICBHI 2017 Challenge: https://bhichallenge.med.auth.gr/
-2. PennyLane Documentation: https://pennylane.ai/
-3. Quantum Machine Learning: https://arxiv.org/abs/1307.0411
-
-## License
-
-MIT License
-
-## Author
-
-[Your Name]
 
 ---
 
-**Note**: This project is for educational purposes demonstrating QML techniques. For clinical applications, proper validation and regulatory approval would be required.
+## Referencias
 
+- ICBHI 2017 Respiratory Sound Database
+- Schuld, M., & Petruccione, F. (2021). Machine Learning with Quantum Computers
+- Havlíček, V., et al. (2019). Supervised learning with quantum-enhanced feature spaces
